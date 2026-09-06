@@ -1,222 +1,160 @@
 # AGENTS.md — Super X Helper
 
-This repository contains software that may interact with real hardware, cooling controls, power limits, Bluetooth peripherals, and storage containing user data. Agents must treat hardware state and user data as higher priority than task completion speed.
+This repository interacts with real cooling, power, Bluetooth and storage hardware. Hardware state and user data are higher priority than task completion speed.
 
-## Project goal
+## Current project phase
 
-Build a Linux-native control and diagnostics layer for the ONEXPLAYER Super X, with special focus on:
+The current goal is the **pre-Astra daily-driver build**.
 
-1. integrating existing Linux platform controls into one safe daily-driver application;
-2. reverse-engineering and implementing Frost Bay liquid-cooler control/telemetry over Bluetooth;
-3. isolating and mitigating Mini SSD reliability failures.
+Order:
 
-**Current milestone:** finish the pre-Astra daily-driver control center before spending premium research-model effort on Frost Bay or Mini SSD root-cause work. Read `docs/PRE_ASTRA_CHECKPOINT.md` and `ROADMAP.md` before choosing the next task.
+```text
+trusted read-only evidence
+→ stable capability/service contract
+→ GTK daily-driver UI + ordinary Linux integration
+→ PRE-ASTRA GATE
+→ Frost Bay / Mini SSD deep research
+```
 
-The pre-Astra product should already provide ordinary performance/fan/display/battery/profile/diagnostic functionality where Linux exposes a trustworthy interface. Frost Bay should remain `RESEARCH_PENDING`, and Mini SSD reliability should remain `NOT_QUALIFIED`, until their dedicated research gates pass.
+Do not jump into Frost Bay protocol writes or Mini SSD fault experiments while doing ordinary frontend/backend work.
 
-Read `README.md`, `DESIGN.md`, and the relevant research document before changing code or conducting experiments.
+## Required reading
 
-## Model ladder
+Before changing code:
 
-Use the cheapest model tier that can reliably do the work:
+- `README.md`
+- `DESIGN.md`
+- `ROADMAP.md`
+- `docs/UI_CONTRACT.md`
+- `docs/PHASE0_HANDOFF.md`
+- the relevant hardware research doc.
 
-- **Tier 1 — Gemini 3.8 Flash / DeepSeek V4 Flash:** inventory, scaffolding, UI/components, tests, docs, mechanical implementation.
-- **Tier 2 — GPT-5.6 Terra Medium:** serious engineering, backend/system integration, correctness review, hardening of Tier-1 output.
-- **Tier 3 — DeepSeek V4 Pro High:** hard debugging, difficult architecture, static reverse engineering, second opinion after serious Tier-2 attempts.
-- **Tier 4 — GPT-6 Astra Medium/High:** undocumented protocols, experimental hardware debugging, cross-layer root-cause work, autonomous hypothesis → experiment loops.
+## Evidence levels
 
-**Routing rule:** Astra should usually receive evidence produced by cheaper models rather than being asked to gather all evidence itself. Once Astra resolves an unknown, step back down to Terra/Flash for normal implementation, tests, UI wiring and documentation.
+Use evidence in this order:
 
-For this project, Astra is primarily reserved for:
-
-- unresolved Frost Bay protocol semantics and the first safe proof-of-control;
-- Mini SSD disappearance/root-cause isolation and the first evidence-backed mitigation experiment.
-
-Do not use Astra merely because a task is large or visually important.
-
-## Authority of evidence
-
-Use this priority order:
-
-1. direct observation from the current Super X hardware;
-2. upstream Linux/kernel source and official hardware documentation;
-3. reproducible behavior from maintained open-source projects;
-4. static evidence from publicly distributed vendor software;
+1. direct observation from the current Super X;
+2. upstream kernel/official documentation;
+3. reproducible maintained open-source behavior;
+4. static vendor-software evidence;
 5. community reports;
-6. inference/hypothesis.
+6. hypothesis.
 
-Never silently promote a community report or plausible guess into a confirmed protocol fact.
+Never silently upgrade a plausible interface into a locally verified hardware operation.
 
-Use these terms consistently:
+## Capability states
 
-- **CONFIRMED** — repeated direct evidence or authoritative source.
-- **LIKELY** — strong converging evidence, incomplete direct validation.
-- **HYPOTHESIS** — plausible and testable.
-- **REJECTED** — contradicted by evidence.
+Frontend/backend state uses:
 
-For UI/backend capability state, do not overload the research confidence labels. Use explicit capability states such as:
-
-- `AVAILABLE_READ_WRITE`
-- `READ_ONLY`
+- `CONFIRMED_LOCAL`
 - `SUPPORTED_UNVERIFIED`
+- `READ_ONLY`
 - `RESEARCH_PENDING`
 - `UNAVAILABLE`
 - `ERROR`
 
-Capability discovery is not authorization to write hardware.
+Mini SSD reliability is `NOT_QUALIFIED` until the qualification track passes.
+Frost Bay is `RESEARCH_PENDING` until protocol research passes.
 
-## Hardware safety rules
+## Discovery is not authorization
 
-### EC / platform control
-
-- Do not write undocumented EC registers merely because they appear writable.
-- Prefer upstream `oxpec`, hwmon, sysfs, DBus, compositor APIs, or maintained userspace interfaces.
-- A sysfs path existing is not sufficient proof that the exact local write semantics are production-qualified.
-- If raw EC access is necessary for research, start read-only and document every register observation.
-- Any write experiment requires a specific hypothesis, known prior value, bounded safe candidate value, and rollback plan.
-- A failed prerequisite operation must abort dependent writes. Example: failure to enter fan manual mode means do not attempt a subsequent PWM-duty write.
-- Where observed state exists, compare it against the requested state rather than treating a successful file write as hardware verification.
-- Never disable platform thermal protection or firmware safety mechanisms as a shortcut.
-
-### Frost Bay
-
-- Before the research phase, production code/UI must report `RESEARCH_PENDING` rather than simulate control/telemetry.
-- Start with passive BLE discovery, reads, and notifications.
-- Do not fuzz writable GATT characteristics against live cooling hardware.
-- Do not replay unexplained byte sequences.
-- Before the first Linux control write, document:
-  - target device identity;
-  - service and characteristic;
-  - command meaning;
-  - encoding;
-  - known safe range;
-  - expected effect;
-  - rollback/restoration action.
-- Do not use maximum pump/fan/power values as first tests.
-- Loss of Frost Bay connection/health must never be treated as permission to retain a liquid-only high-power profile.
-
-### Mini SSD
-
-- Assume the Mini SSD is untrusted storage until reliability qualification passes.
-- The daily-driver UI may show read-only presence/link/temperature/SMART telemetry, but must label reliability `NOT_QUALIFIED` until the research suite passes.
-- Do not store the only copy of any important file on it.
-- Do not format, repartition, erase, sanitize, firmware-update, or run destructive write tests without an explicit task requiring that action and an explicit user-approved disposable-data setup.
-- Default diagnostics must be read-only.
-- Controlled writes, when authorized, must operate only on clearly identified disposable test files/filesystems.
-- Do not blame the filesystem before checking whether the PCIe endpoint and NVMe controller remain present.
-- Do not equate `NVME_PRESENT` or clean SMART telemetry with reliability qualification.
-
-## Experimental method
-
-For ambiguous hardware behavior, use:
+This is a hard invariant:
 
 ```text
-observation
-→ hypothesis
-→ prediction
-→ smallest discriminating experiment
-→ result
-→ update hypothesis
+writable path discovered != write authorized
 ```
 
-Change one variable at a time where practical.
+The production backend defaults to **no authorized writes**. A write is enabled only after the capability passes the research-to-production gate and policy explicitly authorizes it.
 
-For every experiment record:
+Frontend code checks the normalized contract (`can_write`); it never infers writability from a path or status string.
 
-- timestamp;
-- hardware/software baseline relevant to result;
-- exact action;
-- expected observation;
-- actual observation;
-- logs/artifacts created;
-- conclusion;
-- next experiment.
+## UI architecture rules
 
-Do not stop at an interesting breadcrumb if another bounded experiment can resolve the immediate question safely.
+The frontend may consume only the service/client contract. It must not import raw platform/storage/Frost Bay backends.
 
-## Pre-Astra implementation order
+Preferred flow:
 
-Unless a blocking dependency proves otherwise:
+```text
+GTK UI
+  ↓ ServiceClient
+service facade / D-Bus adapter
+  ↓
+backend
+```
 
-1. harden baseline/capability/collector evidence;
-2. establish the privileged service/API boundary;
-3. validate ordinary platform write paths one by one;
-4. build capability-driven UI shell/dashboard;
-5. add Performance, Cooling, Display, Power/Battery, Storage, Profiles and Diagnostics pages;
-6. add quick-access workflow;
-7. integrate maintained controller/RGB support where practical;
-8. pass the pre-Astra checkpoint;
-9. only then begin Frost Bay and Mini SSD deep research.
+Do not place shell commands, sysfs paths, EC registers or BLE packet bytes in widgets, profiles or user configuration.
 
-Do not allow a research-pending Frost Bay card or unqualified Mini SSD to block the rest of the product.
+## EC/platform safety
 
-## Frost Bay reverse-engineering order
+- no undocumented EC writes for convenience;
+- prefer `oxpec`, hwmon, sysfs, D-Bus or maintained userspace interfaces;
+- validate range/type before every write;
+- read observed state and fail if it does not match the request;
+- failed prerequisites abort dependent operations;
+- do not claim automatic fan rollback until it is implemented and tested;
+- never disable firmware thermal protections.
 
-After the pre-Astra checkpoint:
+## Frost Bay safety
 
-1. Gemini/cheap-model Linux Bluetooth device discovery.
-2. GATT service/characteristic enumeration and safe read/notification capture.
-3. Terra review/curation of evidence.
-4. DeepSeek V4 Pro static OneXConsole inspection for names/UUIDs/constants/protocol structures.
-5. Astra receives the curated evidence packet and resolves remaining semantics through minimum safe experiments.
-6. Reproduce one understood benign command on Linux.
-7. Repeatability and disconnect behavior.
-8. Typed protocol implementation and tests with Terra/Flash.
+Research order:
 
-Do not jump directly to the write step.
+1. passive device discovery;
+2. GATT map;
+3. safe reads/notifications;
+4. static OneXConsole analysis;
+5. controlled known-good Windows observation if needed;
+6. one understood benign Linux write;
+7. repeatability/disconnect behavior;
+8. typed production backend.
 
-## Mini SSD investigation order
+No blind writes, fuzzing, unexplained replay, or max-value first tests.
 
-Always determine the failure layer first:
+Loss/staleness/unknown cooler state never means healthy.
+
+## Mini SSD safety
+
+Assume the Mini SSD is untrusted storage until qualification passes.
+
+Failure-layer order:
 
 ```text
 PCIe endpoint
-  ↓
-NVMe controller / namespace
-  ↓
-block device
-  ↓
-I/O
-  ↓
-filesystem/application
+→ NVMe controller
+→ namespace/block device
+→ I/O
+→ filesystem/application
 ```
 
-Capture state at the highest available layers after every failure.
+Do not format/repartition/sanitize/firmware-update or run destructive workloads unless an explicit later task and disposable-data setup authorize it.
 
-Do not apply a bag of kernel parameters simultaneously. Test the minimum evidence-backed change required to discriminate a hypothesis.
+Do not infer reliability from SMART/enumeration alone.
 
-## Coding principles
+## Diagnostics/privacy
 
-- UI code must not contain raw EC register writes or BLE magic packets.
-- Privileged hardware access belongs behind a narrow service/API boundary.
-- Validate numeric ranges before writes.
-- Prefer typed command/state models over raw strings/byte arrays.
-- Avoid `shell=true` or command construction from user-controlled strings.
-- External helper execution should use fixed executable names/paths and argument arrays.
-- Keep research tooling separate from production control paths.
-- Hardware-dependent tests must be opt-in and clearly labeled.
-- Default CI must not require Super X hardware and must never perform hardware writes.
-- UI components must tolerate `READ_ONLY`, `SUPPORTED_UNVERIFIED`, `RESEARCH_PENDING`, `UNAVAILABLE`, and `ERROR` states without hacks.
-- Profiles are high-level declarative policy, never raw paths/registers/commands.
+Default diagnostics:
 
-## Documentation requirements
+- are read-only;
+- do not start a Bluetooth scan;
+- redact unique SSD serials/Bluetooth addresses;
+- exclude credentials, usernames, filesystem contents and unrelated personal data where practical.
 
-When a protocol field, sysfs path, EC behavior, or Mini SSD failure mechanism becomes confirmed, update the corresponding `docs/` research file in the same change.
+Explicit local identifier opt-in is allowed when it is genuinely needed for diagnosis.
 
-When a capability becomes production-qualified, update its status/evidence in the relevant Linux integration or architecture documentation.
+## Model ladder
 
-Do not allow key hardware knowledge to exist only in an AI conversation or terminal scrollback.
+- **Tier 1:** Gemini 3.8 Flash / DeepSeek V4 Flash — UI/scaffolding/tests/docs/mechanical work.
+- **Tier 2:** GPT-5.6 Terra — serious engineering, Linux/backend integration, review.
+- **Tier 3:** DeepSeek V4 Pro — hard debugging/static RE.
+- **Tier 4:** GPT-6 Astra — undocumented protocol/fault-isolation research.
 
-## Task completion
+Astra should inherit evidence from cheaper models. After research resolves an unknown, step back down for implementation.
 
-A research task is not complete merely because a likely cause or candidate byte pattern was found.
+## Tests
 
-Complete when either:
+Default tests/CI must never write physical hardware. Fake sysfs and recorded/mocked protocol data are preferred.
 
-A. the hypothesis has been validated to the task's acceptance criteria and documented; or
+Hardware-changing tests must be explicit, opt-in and document the intended change/rollback.
 
-B. a specific blocker prevents further safe discrimination with available hardware/artifacts, and the exact next experiment is documented.
+## Documentation
 
-Implementation tasks should include tests/fixtures where practical and state any hardware verification still required.
-
-For pre-Astra work, task completion must not silently upgrade `SUPPORTED_UNVERIFIED` to `AVAILABLE_READ_WRITE` merely because mocked tests pass.
+When a hardware/interface fact changes status, update the relevant doc in the same change. Important discoveries must not exist only in terminal scrollback or an AI conversation.

@@ -1,5 +1,9 @@
 {
+  "snapshot_status": "Historical baseline captured before Phase-0 Tier-2 hardening; public copy redacts unique identifiers. Namespace names are restored from the separately recorded local hardware baseline.",
   "timestamp_utc": "2026-09-06T21:34:56.173968+00:00",
+  "privacy": {
+    "unique_identifiers_included": false
+  },
   "dmi": {
     "sys_vendor": "ONE-NETBOOK",
     "product_name": "ONEXPLAYER SUPER X",
@@ -10,12 +14,10 @@
     "bios_vendor": "American Megatrends International, LLC.",
     "bios_version": "V1.01",
     "bios_date": "01/06/2026",
-    "chassis_type": "10",
-    "modalias": "dmi:bvnAmericanMegatrendsInternational,LLC.:bvrV1.01:bd01/06/2026:br5.36:efr0.21:svnONE-NETBOOK:pnONEXPLAYERSUPERX:pvrDefaultstring:rvnONE-NETBOOK:rnONEXPLAYERSUPERX:rvronec1:cvnONE-NETBOOK:ct10:cvrDefaultstring:sku:pfaONEXPLAYERSUPERX:"
+    "chassis_type": "10"
   },
   "os_kernel": {
     "kernel_release": "7.0.0-30-generic",
-    "kernel_version": "#30~24.04.1-Ubuntu SMP PREEMPT_DYNAMIC Fri Aug  7 13:27:52 UTC 2",
     "os_name": "Ubuntu",
     "os_version": "24.04.4 LTS (Noble Numbat)",
     "os_id": "ubuntu",
@@ -34,8 +36,6 @@
     "present": true,
     "status": "Not charging",
     "capacity_pct": 99,
-    "manufacturer": "Amd Battery",
-    "model_name": "Li-ion Real Battery",
     "energy_now_wh": 79.84,
     "energy_full_wh": 80.9,
     "energy_design_wh": 85.58,
@@ -46,25 +46,11 @@
       {
         "connector": "card1-HDMI-A-1",
         "status": "connected",
-        "modes": [
-          "3840x2160",
-          "3840x2160",
-          "3840x2160",
-          "3840x2160",
-          "3840x2160"
-        ],
         "primary_mode": "3840x2160"
       },
       {
         "connector": "card1-eDP-1",
         "status": "connected",
-        "modes": [
-          "2880x1800",
-          "2880x1800",
-          "1920x1200",
-          "1920x1080",
-          "1600x1200"
-        ],
         "primary_mode": "2880x1800"
       }
     ],
@@ -81,7 +67,7 @@
       {
         "controller": "nvme0",
         "model": "BIWIN Mini SSD 2TB",
-        "serial": "LG25455810050",
+        "serial": "REDACTED",
         "firmware_rev": "BS14552T",
         "is_removable_mini_ssd": true,
         "classification": "NVME_PRESENT",
@@ -93,12 +79,13 @@
           "max_link_speed": "16.0 GT/s PCIe",
           "max_link_width": 2
         },
-        "namespaces": []
+        "namespaces": ["nvme0n1"],
+        "reliability": "NOT_QUALIFIED"
       },
       {
         "controller": "nvme1",
         "model": "KIOXIA-EXCERIA PLUS G4 SSD",
-        "serial": "5FHKS04SZ2V1",
+        "serial": "REDACTED",
         "firmware_rev": "EVFAJ1.2",
         "is_removable_mini_ssd": false,
         "classification": "NVME_PRESENT",
@@ -110,157 +97,30 @@
           "max_link_speed": "32.0 GT/s PCIe",
           "max_link_width": 4
         },
-        "namespaces": []
+        "namespaces": ["nvme1n1"]
       }
     ],
-    "count": 2
-  },
-  "thermal_sensors": [
-    {
-      "id": "hwmon0",
-      "name": "ACAD",
-      "readings": {}
-    },
-    {
-      "id": "hwmon1",
-      "name": "acpitz",
-      "readings": {
-        "temp1": {
-          "temp_c": 0.0
-        }
-      }
-    },
-    {
-      "id": "hwmon2",
-      "name": "BAT0",
-      "readings": {
-        "power1": {
-          "watts": 0.0
-        }
-      }
-    },
-    {
-      "id": "hwmon3",
-      "name": "nvme",
-      "readings": {
-        "Composite": {
-          "temp_c": 40.9
-        },
-        "Sensor 1": {
-          "temp_c": 39.9
-        }
-      }
-    },
-    {
-      "id": "hwmon4",
-      "name": "nvme",
-      "readings": {
-        "Composite": {
-          "temp_c": 44.9
-        },
-        "Sensor 1": {
-          "temp_c": 46.9
-        },
-        "Sensor 2": {
-          "temp_c": 37.9
-        }
-      }
-    },
-    {
-      "id": "hwmon6",
-      "name": "mt7925_phy0",
-      "readings": {
-        "temp1": {
-          "temp_c": 57.0
-        }
-      }
-    },
-    {
-      "id": "hwmon7",
-      "name": "k10temp",
-      "readings": {
-        "Tctl": {
-          "temp_c": 62.0
-        }
-      }
-    },
-    {
-      "id": "hwmon8",
-      "name": "amdgpu",
-      "readings": {
-        "edge": {
-          "temp_c": 61.0
-        },
-        "PPT": {
-          "watts": 29.1
-        }
-      }
+    "count": 2,
+    "mini_ssd": {
+      "state": "NVME_PRESENT",
+      "pci_address": "0000:c4:00.0",
+      "controller": "nvme0",
+      "namespaces": ["nvme0n1"],
+      "reliability": "NOT_QUALIFIED"
     }
-  ],
-  "connectivity": {
-    "bluetooth_adapters": [
-      {
-        "name": "hci0",
-        "address": "present"
-      }
-    ],
-    "usb_device_count": 24,
-    "known_platform_peripherals": [
-      {
-        "dev": "3-1",
-        "vid_pid": "1a2c:b001",
-        "manufacturer": "oneXPlayer",
-        "product": "ONE NETBOOK"
-      },
-      {
-        "dev": "3-3",
-        "vid_pid": "0e8d:0717",
-        "manufacturer": "MediaTek Inc.",
-        "product": "Wireless_Device"
-      },
-      {
-        "dev": "3-4",
-        "vid_pid": "2808:5952",
-        "manufacturer": "FocalTech",
-        "product": "FocalTech Fingerprint Device"
-      }
-    ]
   },
   "platform_modules": {
     "oxpec_loaded": false,
     "oxpec_module_available": true,
-    "oxpec_module_path": "/lib/modules/7.0.0-30-generic/kernel/drivers/platform/x86/oxpec.ko.zst",
     "amdgpu_loaded": true,
     "btusb_loaded": true
   },
-  "capabilities": {
-    "has_fan_control": false,
-    "has_fan_telemetry": false,
-    "fan_hwmon_name": null,
-    "fan_hwmon_path": null,
-    "fan_pwm_path": null,
-    "fan_pwm_enable_path": null,
-    "has_cpu_boost": true,
-    "cpu_boost_path": "/sys/devices/system/cpu/cpufreq/boost",
-    "has_epp_control": true,
-    "epp_path": "/sys/devices/system/cpu/cpufreq/policy0/energy_performance_preference",
-    "epp_available_preferences": [
-      "default",
-      "performance",
-      "balance_performance",
-      "balance_power",
-      "power"
-    ],
-    "cpu_power_method": "rapl",
-    "has_backlight_control": true,
-    "backlight_path": "/sys/class/backlight/amdgpu_bl1/brightness",
-    "backlight_max": 495000,
-    "has_mini_ssd": true,
-    "mini_ssd_pci_address": "0000:c4:00.0",
-    "mini_ssd_classification": "NVME_PRESENT",
-    "oxpec_driver_loaded": false,
-    "oxpec_driver_available": true,
-    "conflicting_daemons": [],
-    "ownership_state": "UNCONTESTED"
+  "capabilities_at_capture": {
+    "cpu_boost_read_path": true,
+    "epp_read_path": true,
+    "backlight_read_path": true,
+    "fan_write_validated": false,
+    "frost_bay": "RESEARCH_PENDING",
+    "mini_ssd_reliability": "NOT_QUALIFIED"
   }
 }
