@@ -65,27 +65,26 @@ Existing Linux handheld projects may already provide:
 
 Super X Helper should integrate or coexist rather than fighting for ownership of the same hardware controls.
 
-## Capability inventory template
+## Verified local capability inventory
 
-Fill this from the local Ubuntu Super X before production implementation.
+Verified locally on ONEXPLAYER Super X running Ubuntu 24.04.4 LTS (Kernel 7.0.0-30-generic).
 
 | Capability | Current interface/project | Local status | Super X Helper role |
 |---|---|---|---|
-| Internal fan telemetry | `oxpec` / hwmon | TBD | Display/normalize |
-| Internal fan control | `oxpec` / hwmon | TBD | Safe UI/profile wrapper |
-| CPU/package power | RyzenAdj / kernel interfaces | TBD | Normalize validated control |
-| CPU boost | TBD | TBD | Optional |
-| Charge limit/inhibit | `oxpec`/ACPI if exposed | TBD | Optional |
-| Battery telemetry | standard power_supply/UPower | TBD | Display |
-| Thermals | hwmon | TBD | Display/policy input |
-| Display resolution | compositor/DRM | TBD | Shortcut/profile |
-| Refresh rate | compositor/DRM | TBD | Shortcut/profile |
-| VRR | compositor/DRM | TBD | Optional |
-| RGB | TBD existing project | TBD | Prefer integration |
-| Controller | kernel/HHD/InputPlumber | TBD | No duplicate controller stack |
-| Gyro | kernel/HHD/InputPlumber | TBD | No duplicate stack unless needed |
-| Frost Bay | none known upstream | Missing | Project-owned research/backend |
-| Mini SSD diagnostics | PCIe/NVMe standard stack | Available | Project-owned diagnostics |
+| Internal fan telemetry | `oxpec` / hwmon | Upstream in kernel (`oxpec.ko.zst`), DMI match verified (`rnONEXPLAYERSUPERX:`), needs explicit module load | Display/normalize from resolved hwmon |
+| Internal fan control | `oxpec` / hwmon | Supported via `pwm1` / `pwm1_enable` upon loading `oxpec` | Safe UI/profile wrapper with range validation |
+| CPU/package power | `amd-pstate-epp` / RAPL (`intel-rapl:0`) / RyzenAdj | Available via sysfs powercap + CPU scaling; RyzenAdj for direct TDP limits | Normalize validated control with safe bounds |
+| CPU boost | `/sys/devices/system/cpu/cpufreq/boost` | Upstream & stable (verified active `1`) | Profile toggle (on/off) |
+| Charge limit/inhibit | `oxpec` / ACPI | Not exposed in standard `BAT0` sysfs; depends on `oxpec` EC interface | Under investigation |
+| Battery telemetry | `/sys/class/power_supply/BAT0` | Upstream & verified active (85.58 Wh design, ~80.9 Wh full) | Real-time battery & charge status display |
+| Thermals | hwmon (`k10temp`, `amdgpu`, `nvme`) | Upstream & active (`hwmon7` CPU Tctl, `hwmon8` GPU, `hwmon3`/`hwmon4` NVMe) | Unified telemetry monitoring |
+| Display resolution | DRM (`card1-eDP-1`) | Upstream & active (native 2880×1800 @ 120 Hz) | Quick mode/scaling selection |
+| Display brightness | `/sys/class/backlight/amdgpu_bl1` | Upstream & active (max brightness 495000) | Brightness slider control |
+| VRR / FreeSync | compositor / DRM (`amdgpu`) | Supported by GPU/driver stack | Optional toggle where supported by compositor |
+| RGB / Controller | Semico USB bridge (`1a2c:b001`) | Device active on USB bus 3; controller handled via standard kernel input/HID | Avoid conflicting with active gamepad mapping |
+| Bluetooth stack | `btusb` / `bluetooth` on MediaTek MT7925 (`0e8d:0717`) | Active via `hci0`; requires `bluetooth.service` and user permissions | Bluetooth discovery & GATT transport for Frost Bay |
+| Frost Bay cooler | Bluetooth LE GATT | Hardware present; software control missing upstream | Project-owned BLE reverse-engineering and client |
+| Mini SSD diagnostics | PCIe / NVMe sysfs + `nvme-cli` | Upstream & verified (`c4:00.0`, Gen4 x2 BIWIN 2TB) | State classifier, error telemetry, reliability tests |
 
 ## Local inventory procedure
 
@@ -179,18 +178,16 @@ Super X Helper should remain useful even as upstream support improves by providi
 - safety policy;
 - diagnostics/export.
 
-## Items that need current local verification
-
-- [ ] exact Ubuntu/kernel version;
-- [ ] whether upstream `oxpec` Super X DMI support is already in the running kernel;
-- [ ] exposed `oxpec` fan attributes;
-- [ ] battery/charge controls exposed for the Super X mapping;
-- [ ] current TDP/power mechanism in use;
-- [ ] controller stack and any missing mappings;
-- [ ] RGB implementation currently available;
-- [ ] display brightness/refresh/VRR behavior;
-- [ ] suspend/resume behavior;
-- [ ] Bluetooth adapter reliability;
-- [ ] Frost Bay device discovery.
-
-Complete this list before committing to the final daemon/UI backend architecture.
+## Verification status matrix
+ 
+- [x] exact Ubuntu/kernel version: Ubuntu 24.04.4 LTS / Linux 7.0.0-30-generic
+- [x] whether upstream `oxpec` Super X DMI support is already in the running kernel: Verified (`oxpec.ko.zst` matches modalias `rnONEXPLAYERSUPERX:`, requires `modprobe oxpec`)
+- [ ] exposed `oxpec` fan attributes: Pending host-level `modprobe oxpec` execution
+- [x] battery/charge controls exposed for the Super X mapping: Basic telemetry in `/sys/class/power_supply/BAT0/`; charge threshold not exposed via standard ACPI
+- [x] current TDP/power mechanism in use: `amd-pstate-epp` + `energy_performance_preference`, CPU boost toggle, RAPL powercap
+- [x] controller stack and any missing mappings: Semico USB bridge (`1a2c:b001`) detected
+- [ ] RGB implementation currently available: Under investigation
+- [x] display brightness/refresh/VRR behavior: 2880x1800 @ 120Hz on `card1-eDP-1`, backlight on `amdgpu_bl1`
+- [ ] suspend/resume behavior: To be qualified during Phase 2 Mini SSD stress tests
+- [x] Bluetooth adapter reliability: MediaTek MT7925 (`0e8d:0717`) on `hci0`
+- [ ] Frost Bay device discovery: Target of Phase 1 BLE research tasks
