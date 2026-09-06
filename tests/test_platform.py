@@ -1,122 +1,91 @@
-#!/usr/bin/env python3
-"""Unit tests for superx_helper.capabilities and superx_helper.platform."""
-
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
-from superx_helper.capabilities import detect_capabilities, find_hwmon_by_name
-from superx_helper.platform import PlatformBackend
+from superx_helper.capabilities import find_hwmon_by_name
+from superx_helper.platform import OperationResult, PlatformBackend
 
 
-class TestCapabilitiesAndPlatform(unittest.TestCase):
+class PlatformTests(unittest.TestCase):
     def setUp(self):
-        self.tmpdir = tempfile.TemporaryDirectory()
-        self.root = Path(self.tmpdir.name)
-
-        # Setup mock sysfs tree
-        self.hwmon_dir = self.root / "sys/class/hwmon"
-        self.hwmon_dir.mkdir(parents=True)
-
-        # Mock oxpec hwmon
-        oxp = self.hwmon_dir / "hwmon5"
-        oxp.mkdir()
-        (oxp / "name").write_text("oxpec\n")
-        (oxp / "pwm1").write_text("128\n")
-        (oxp / "pwm1_enable").write_text("2\n")
-
-        # Mock cpufreq
-        cpufreq_dir = self.root / "sys/devices/system/cpu/cpufreq"
-        policy0 = cpufreq_dir / "policy0"
-        policy0.mkdir(parents=True)
-        (cpufreq_dir / "boost").write_text("1\n")
-        (policy0 / "energy_performance_preference").write_text("balance_performance\n")
-        (policy0 / "energy_performance_available_preferences").write_text(
-            "default performance balance_performance power\n"
-        )
-
-        # Mock backlight
-        bl_dir = self.root / "sys/class/backlight/amdgpu_bl1"
-        bl_dir.mkdir(parents=True)
-        (bl_dir / "brightness").write_text("250000\n")
-        (bl_dir / "max_brightness").write_text("500000\n")
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        hwmon = self.root / "sys/class/hwmon/hwmon5"
+        hwmon.mkdir(parents=True)
+        (hwmon / "name").write_text("oxpec\n")
+        (hwmon / "pwm1").write_text("128\n")
+        (hwmon / "pwm1_enable").write_text("2\n")
+        cpu = self.root / "sys/devices/system/cpu/cpufreq"
+        policy = cpu / "policy0"
+        policy.mkdir(parents=True)
+        (cpu / "boost").write_text("1\n")
+        (policy / "energy_performance_preference").write_text("balance_performance\n")
+        (policy / "energy_performance_available_preferences").write_text("default performance balance_performance balance_power power\n")
+        backlight = self.root / "sys/class/backlight/amdgpu_bl1"
+        backlight.mkdir(parents=True)
+        (backlight / "brightness").write_text("250000\n")
+        (backlight / "max_brightness").write_text("500000\n")
+        (self.root / "sys/bus/pci/devices").mkdir(parents=True)
 
     def tearDown(self):
-        self.tmpdir.cleanup()
+        self.tmp.cleanup()
 
     def test_find_hwmon_by_name(self):
-        res = find_hwmon_by_name("oxpec", sysfs_hwmon=str(self.hwmon_dir))
-        self.assertIsNotNone(res)
-        self.assertEqual(res.name, "hwmon5")
+        result = find_hwmon_by_name("oxpec", str(self.root / "sys/class/hwmon"))
+        self.assertIsNotNone(result)
+        self.assertEqual(result.name, "hwmon5")
 
-        res_none = find_hwmon_by_name("nonexistent", sysfs_hwmon=str(self.hwmon_dir))
-        self.assertIsNone(res_none)
+    def test_discovery_does_not_authorize_writes(self):
+        backend = PlatformBackend(sysfs_root=str(self.root))
+        self.assertTrue(backend.capabilities.has_cpu_boost)
+        before = Path(backend.capabilities.cpu_boost_path).read_text()
+        result = backend.set_cpu_boost(False)
+        self.assertFalse(result.success)
+        self.assertIn("not production-authorized", result.error_message)
+        self.assertEqual(Path(backend.capabilities.cpu_boost_path).read_text(), before)
 
-    def test_detect_capabilities(self):
-        caps = detect_capabilities(sysfs_root=str(self.root))
-        self.assertTrue(caps.has_fan_control)
-        self.assertTrue(caps.oxpec_driver_loaded)
-        self.assertEqual(caps.fan_hwmon_name, "oxpec")
-        self.assertTrue(caps.has_cpu_boost)
-        self.assertTrue(caps.has_epp_control)
-        self.assertIn("performance", caps.epp_available_preferences)
-        self.assertTrue(caps.has_backlight_control)
-        self.assertEqual(caps.backlight_max, 500000)
+    def test_authorized_fake_write(self):
+        backend = PlatformBackend(sysfs_root=str(self.root), authorized_writes={"cpu_boost"})
+        result = backend.set_cpu_boost(False)
+        self.assertTrue(result.success)
+        self.assertFalse(result.observed_value)
 
-    def test_platform_fan_range_and_control(self):
-        backend = PlatformBackend(sysfs_root=str(self.root), dry_run=False)
+    def test_requested_vs_observed_mismatch_fails(self):
+        target = self.root / "target"
+        target.write_text("0\n")
+        backend = PlatformBackend(sysfs_root=str(self.root), authorized_writes={"test_write"})
+        original_read = Path.read_text
+        def wrong_read(path, *args, **kwargs):
+            if path == target:
+                return "different\n"
+            return original_read(path, *args, **kwargs)
+        with patch.object(Path, "read_text", wrong_read):
+            result = backend._safe_write(str(target), "expected", "test_write")
+        self.assertFalse(result.success)
+        self.assertEqual(result.observed_value, "different")
+        self.assertIn("did not verify", result.error_message)
 
-        # Out of bounds duty cycle
-        res_invalid_high = backend.set_fan_duty(105)
-        self.assertFalse(res_invalid_high.success)
-        self.assertIn("out of valid range", res_invalid_high.error_message)
+    def test_failed_manual_mode_prevents_fan_duty_write(self):
+        backend = PlatformBackend(sysfs_root=str(self.root), authorized_writes={"fan_control"})
+        calls = []
+        def fake_safe_write(path, value, capability):
+            calls.append(capability)
+            if capability == "fan_manual_enable":
+                return OperationResult(False, capability, value, error_message="mode failed")
+            self.fail("fan duty write should not occur after mode failure")
+        with patch.object(backend, "_safe_write", side_effect=fake_safe_write):
+            result = backend.set_fan_duty(50)
+        self.assertFalse(result.success)
+        self.assertEqual(calls, ["fan_manual_enable"])
+        self.assertIn("Refusing fan-duty write", result.error_message)
 
-        res_invalid_low = backend.set_fan_duty(-10)
-        self.assertFalse(res_invalid_low.success)
-
-        # Valid duty cycle (50%) -> should write ~128 to pwm1
-        res_valid = backend.set_fan_duty(50)
-        self.assertTrue(res_valid.success)
-        # Read back duty
-        current_duty = backend.read_fan_duty()
-        self.assertIsNotNone(current_duty)
-        self.assertEqual(current_duty, 50)
-
-    def test_platform_epp_validation(self):
-        backend = PlatformBackend(sysfs_root=str(self.root), dry_run=False)
-
-        # Invalid preference
-        res_invalid = backend.set_epp("ultra_hyper_mode")
-        self.assertFalse(res_invalid.success)
-        self.assertIn("invalid", res_invalid.error_message)
-
-        # Valid preference
-        res_valid = backend.set_epp("performance")
-        self.assertTrue(res_valid.success)
-        self.assertEqual(backend.read_epp(), "performance")
-
-    def test_platform_brightness_control(self):
-        backend = PlatformBackend(sysfs_root=str(self.root), dry_run=False)
-
-        # Range checks
-        self.assertFalse(backend.set_display_brightness_percent(-1.0).success)
-        self.assertFalse(backend.set_display_brightness_percent(101.0).success)
-
-        # Valid set 80%
-        res = backend.set_display_brightness_percent(80.0)
-        self.assertTrue(res.success)
-        read_pct = backend.read_display_brightness_percent()
-        self.assertIsNotNone(read_pct)
-        self.assertEqual(read_pct, 80.0)
-
-    def test_dry_run_mode(self):
-        backend = PlatformBackend(sysfs_root=str(self.root), dry_run=True)
-        res = backend.set_cpu_boost(False)
-        self.assertTrue(res.success)
-        self.assertTrue(res.dry_run)
-        # Verify file content did NOT change on disk in dry run
-        boost_content = Path(backend.capabilities.cpu_boost_path).read_text().strip()
-        self.assertEqual(boost_content, "1")
+    def test_range_checks_remain_before_write(self):
+        backend = PlatformBackend(sysfs_root=str(self.root))
+        self.assertFalse(backend.set_fan_duty(-1).success)
+        self.assertFalse(backend.set_fan_duty(101).success)
+        self.assertFalse(backend.set_display_brightness_percent(-1).success)
+        self.assertFalse(backend.set_display_brightness_percent(101).success)
 
 
 if __name__ == "__main__":

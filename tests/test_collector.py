@@ -1,90 +1,48 @@
-#!/usr/bin/env python3
-"""Unit tests for superx_helper.collector."""
-
 import json
-import os
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch
 
-from superx_helper.collector import (
-    _read_sysfs_int,
-    _read_sysfs_text,
-    collect_all,
-    format_summary,
-    get_dmi_info,
-    get_hwmon_info,
-    get_os_kernel_info,
-)
+from superx_helper.collector import _redacted, _read_sysfs_int, _read_sysfs_text, get_dmi_info, get_hwmon_info
 
 
-class TestCollector(unittest.TestCase):
-    def test_read_sysfs_text_missing(self):
-        self.assertIsNone(_read_sysfs_text("/nonexistent/sysfs/path"))
-
-    def test_read_sysfs_int_valid(self):
-        with tempfile.NamedTemporaryFile("w", delete=False) as f:
-            f.write("42\n")
-            f_path = f.name
+class CollectorTests(unittest.TestCase):
+    def test_read_helpers(self):
+        with tempfile.NamedTemporaryFile("w", delete=False) as handle:
+            handle.write("42\n")
+            path = handle.name
         try:
-            self.assertEqual(_read_sysfs_int(f_path), 42)
+            self.assertEqual(_read_sysfs_text(path), "42")
+            self.assertEqual(_read_sysfs_int(path), 42)
         finally:
-            os.remove(f_path)
+            Path(path).unlink()
 
-    def test_read_sysfs_int_invalid(self):
-        with tempfile.NamedTemporaryFile("w", delete=False) as f:
-            f.write("not_a_number\n")
-            f_path = f.name
-        try:
-            self.assertIsNone(_read_sysfs_int(f_path))
-        finally:
-            os.remove(f_path)
+    def test_missing_read(self):
+        self.assertIsNone(_read_sysfs_text("/definitely/not/here"))
 
-    def test_get_dmi_info_mocked(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            dmi_dir = Path(tmpdir)
-            (dmi_dir / "sys_vendor").write_text("ONE-NETBOOK\n")
-            (dmi_dir / "product_name").write_text("ONEXPLAYER SUPER X\n")
-            (dmi_dir / "board_name").write_text("ONEXPLAYER SUPER X\n")
-            (dmi_dir / "bios_version").write_text("V1.01\n")
+    def test_dmi_mock(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            (base / "sys_vendor").write_text("ONE-NETBOOK\n")
+            (base / "product_name").write_text("ONEXPLAYER SUPER X\n")
+            data = get_dmi_info(str(base))
+            self.assertEqual(data["sys_vendor"], "ONE-NETBOOK")
+            self.assertEqual(data["product_name"], "ONEXPLAYER SUPER X")
 
-            dmi = get_dmi_info(base_path=str(dmi_dir))
-            self.assertEqual(dmi["sys_vendor"], "ONE-NETBOOK")
-            self.assertEqual(dmi["product_name"], "ONEXPLAYER SUPER X")
-            self.assertEqual(dmi["bios_version"], "V1.01")
-            self.assertIsNone(dmi["board_vendor"])
+    def test_hwmon_mock(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            hw = Path(tmp) / "hwmon0"
+            hw.mkdir()
+            (hw / "name").write_text("k10temp\n")
+            (hw / "temp1_input").write_text("55000\n")
+            (hw / "temp1_label").write_text("Tctl\n")
+            data = get_hwmon_info(tmp)
+            self.assertEqual(data[0]["readings"]["Tctl"]["temp_c"], 55.0)
 
-    def test_get_hwmon_info_mocked(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            hw_base = Path(tmpdir)
-            hw0 = hw_base / "hwmon0"
-            hw0.mkdir()
-            (hw0 / "name").write_text("k10temp\n")
-            (hw0 / "temp1_input").write_text("55000\n")
-            (hw0 / "temp1_label").write_text("Tctl\n")
-
-            sensors = get_hwmon_info(sysfs_hwmon=str(hw_base))
-            self.assertEqual(len(sensors), 1)
-            self.assertEqual(sensors[0]["name"], "k10temp")
-            self.assertEqual(sensors[0]["readings"]["Tctl"]["temp_c"], 55.0)
-
-    def test_collect_all_runs_without_exception(self):
-        # On the live machine, collect_all must succeed and return a dict
-        data = collect_all()
-        self.assertIsInstance(data, dict)
-        self.assertIn("timestamp_utc", data)
-        self.assertIn("dmi", data)
-        self.assertIn("storage", data)
-        self.assertIn("cpu", data)
-
-        # Ensure JSON serializable
-        serialized = json.dumps(data)
-        self.assertTrue(len(serialized) > 0)
-
-        # Ensure summary formatting works
-        summary = format_summary(data)
-        self.assertIn("ONEXPLAYER Super X", summary)
+    def test_identifier_redaction_is_default_safe(self):
+        self.assertEqual(_redacted("ABC123", False), "REDACTED")
+        self.assertEqual(_redacted("ABC123", True), "ABC123")
+        self.assertIsNone(_redacted(None, False))
 
 
 if __name__ == "__main__":

@@ -1,10 +1,8 @@
-"""Platform backend implementing safe, validated control operations for Super X Helper.
+"""Validated platform operations for Super X Helper.
 
-Follows the design principles in DESIGN.md and AGENTS.md:
-- Never accept arbitrary sysfs paths from callers.
-- Enforce strict range checks before any write operation.
-- Verify observed state against desired state.
-- Gracefully handle permission limitations.
+Interface discovery and write authorization are deliberately separate.  The
+backend defaults to no authorized writes until a hardware path has passed the
+research-to-production gate.
 """
 
 from __future__ import annotations
@@ -12,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import logging
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Iterable, Optional, Set
 
 from superx_helper.capabilities import PlatformCapabilities, detect_capabilities
 
@@ -21,8 +19,6 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class OperationResult:
-    """Outcome of a platform control operation."""
-
     success: bool
     capability: str
     target_value: Any
@@ -42,20 +38,42 @@ class OperationResult:
 
 
 class PlatformBackend:
-    """Safe, typed interface for Super X platform hardware controls."""
-
-    def __init__(self, sysfs_root: str = "", dry_run: bool = False):
+    def __init__(
+        self,
+        sysfs_root: str = "",
+        dry_run: bool = False,
+        authorized_writes: Optional[Iterable[str]] = None,
+    ):
         self.sysfs_root = sysfs_root
         self.dry_run = dry_run
+        self.authorized_writes: Set[str] = set(authorized_writes or [])
         self.capabilities = detect_capabilities(sysfs_root=sysfs_root)
 
     def refresh_capabilities(self) -> PlatformCapabilities:
-        """Re-scan platform capabilities and return updated state."""
         self.capabilities = detect_capabilities(sysfs_root=self.sysfs_root)
         return self.capabilities
 
-    def _safe_write(self, path_str: Optional[str], value: str, capability: str) -> OperationResult:
-        """Write safely to a validated sysfs path with error interception."""
+    def is_write_authorized(self, capability: str) -> bool:
+        return capability in self.authorized_writes
+
+    def _blocked(self, capability: str, target_value: Any) -> OperationResult:
+        return OperationResult(
+            success=False,
+            capability=capability,
+            target_value=target_value,
+            error_message=(
+                f"Write capability '{capability}' is not production-authorized on this hardware."
+            ),
+        )
+
+    def _safe_write(
+        self,
+        path_str: Optional[str],
+        value: str,
+        capability: str,
+    ) -> OperationResult:
+        if not self.is_write_authorized(capability):
+            return self._blocked(capability, value)
         if not path_str:
             return OperationResult(
                 success=False,
@@ -78,6 +96,16 @@ class PlatformBackend:
         try:
             target_path.write_text(value + "\n", encoding="utf-8")
             observed = target_path.read_text(encoding="utf-8").strip()
+            if observed != value:
+                return OperationResult(
+                    success=False,
+                    capability=capability,
+                    target_value=value,
+                    observed_value=observed,
+                    error_message=(
+                        f"Write did not verify: requested {value!r}, observed {observed!r}."
+                    ),
+                )
             return OperationResult(
                 success=True,
                 capability=capability,
@@ -90,10 +118,10 @@ class PlatformBackend:
                 capability=capability,
                 target_value=value,
                 error_message=(
-                    f"Permission denied writing to {target_path}. Elevated daemon privileges required."
+                    f"Permission denied writing to {target_path}. Privileged service authorization required."
                 ),
             )
-        except Exception as exc:
+        except OSError as exc:
             return OperationResult(
                 success=False,
                 capability=capability,
@@ -101,25 +129,16 @@ class PlatformBackend:
                 error_message=f"Write failed: {exc}",
             )
 
-    # -------------------------------------------------------------------------
-    # Fan Controls (oxpec hwmon)
-    # -------------------------------------------------------------------------
-
     def read_fan_duty(self) -> Optional[int]:
-        """Read current internal fan duty cycle as a percentage (0..100%)."""
         if not self.capabilities.has_fan_telemetry or not self.capabilities.fan_pwm_path:
             return None
         try:
-            raw_pwm = int(Path(self.capabilities.fan_pwm_path).read_text(encoding="utf-8").strip())
+            raw_pwm = int(Path(self.capabilities.fan_pwm_path).read_text().strip())
             return round((raw_pwm / 255.0) * 100)
-        except Exception:
+        except (OSError, ValueError):
             return None
 
     def set_fan_duty(self, duty_percent: int) -> OperationResult:
-        """Set internal fan duty percentage (0..100%).
-
-        Validates duty cycle, converts to 0..255 PWM scale, and writes to oxpec hwmon.
-        """
         if not (0 <= duty_percent <= 100):
             return OperationResult(
                 success=False,
@@ -127,31 +146,51 @@ class PlatformBackend:
                 target_value=duty_percent,
                 error_message=f"Duty cycle {duty_percent}% is out of valid range [0, 100].",
             )
-
+        if not self.is_write_authorized("fan_control"):
+            return self._blocked("fan_control", duty_percent)
         if not self.capabilities.has_fan_control or not self.capabilities.fan_pwm_path:
             return OperationResult(
                 success=False,
                 capability="fan_control",
                 target_value=duty_percent,
-                error_message="Internal fan control is not available (oxpec driver not loaded).",
+                error_message="Internal fan control interface is not available.",
             )
 
-        # Ensure manual control mode is active if pwm1_enable exists (usually mode 1)
         if self.capabilities.fan_pwm_enable_path:
-            self._safe_write(self.capabilities.fan_pwm_enable_path, "1", "fan_manual_enable")
+            previous = set(self.authorized_writes)
+            self.authorized_writes.add("fan_manual_enable")
+            try:
+                mode_result = self._safe_write(
+                    self.capabilities.fan_pwm_enable_path,
+                    "1",
+                    "fan_manual_enable",
+                )
+            finally:
+                self.authorized_writes = previous
+            if not mode_result.success:
+                return OperationResult(
+                    success=False,
+                    capability="fan_control",
+                    target_value=duty_percent,
+                    observed_value=mode_result.observed_value,
+                    error_message=(
+                        "Refusing fan-duty write because manual fan mode could not be verified: "
+                        f"{mode_result.error_message}"
+                    ),
+                )
 
         raw_pwm = int(round((duty_percent / 100.0) * 255))
-        res = self._safe_write(self.capabilities.fan_pwm_path, str(raw_pwm), "fan_duty")
-        if res.success and res.observed_value is not None:
+        result = self._safe_write(self.capabilities.fan_pwm_path, str(raw_pwm), "fan_control")
+        if result.observed_value is not None:
             try:
-                observed_int = int(res.observed_value)
-                res.observed_value = round((observed_int / 255.0) * 100)
-            except ValueError:
+                observed_raw = int(result.observed_value)
+                result.observed_value = round((observed_raw / 255.0) * 100)
+            except (TypeError, ValueError):
                 pass
-        return res
+        result.target_value = duty_percent
+        return result
 
     def set_fan_auto(self) -> OperationResult:
-        """Restore automatic EC-controlled fan curve (pwm1_enable = 2)."""
         if not self.capabilities.has_fan_control or not self.capabilities.fan_pwm_enable_path:
             return OperationResult(
                 success=False,
@@ -161,21 +200,15 @@ class PlatformBackend:
             )
         return self._safe_write(self.capabilities.fan_pwm_enable_path, "2", "fan_auto")
 
-    # -------------------------------------------------------------------------
-    # CPU Scaling & Boost
-    # -------------------------------------------------------------------------
-
     def read_epp(self) -> Optional[str]:
-        """Read active Energy Performance Preference."""
         if not self.capabilities.has_epp_control or not self.capabilities.epp_path:
             return None
         try:
-            return Path(self.capabilities.epp_path).read_text(encoding="utf-8").strip()
-        except Exception:
+            return Path(self.capabilities.epp_path).read_text().strip()
+        except OSError:
             return None
 
     def set_epp(self, preference: str) -> OperationResult:
-        """Set Energy Performance Preference with validation against available profiles."""
         pref_clean = preference.strip().lower()
         if (
             self.capabilities.epp_available_preferences
@@ -189,11 +222,17 @@ class PlatformBackend:
                     f"Preference '{preference}' invalid. Allowed: {self.capabilities.epp_available_preferences}"
                 ),
             )
-
         return self._safe_write(self.capabilities.epp_path, pref_clean, "epp")
 
+    def read_cpu_boost(self) -> Optional[bool]:
+        if not self.capabilities.has_cpu_boost or not self.capabilities.cpu_boost_path:
+            return None
+        try:
+            return Path(self.capabilities.cpu_boost_path).read_text().strip() == "1"
+        except OSError:
+            return None
+
     def set_cpu_boost(self, enable: bool) -> OperationResult:
-        """Enable or disable CPU boost flag (0 or 1)."""
         if not self.capabilities.has_cpu_boost or not self.capabilities.cpu_boost_path:
             return OperationResult(
                 success=False,
@@ -201,15 +240,17 @@ class PlatformBackend:
                 target_value=enable,
                 error_message="CPU boost control path not found.",
             )
-        val = "1" if enable else "0"
-        return self._safe_write(self.capabilities.cpu_boost_path, val, "cpu_boost")
-
-    # -------------------------------------------------------------------------
-    # Display Brightness
-    # -------------------------------------------------------------------------
+        result = self._safe_write(
+            self.capabilities.cpu_boost_path,
+            "1" if enable else "0",
+            "cpu_boost",
+        )
+        result.target_value = enable
+        if result.observed_value in {"0", "1"}:
+            result.observed_value = result.observed_value == "1"
+        return result
 
     def read_display_brightness_percent(self) -> Optional[float]:
-        """Read current display brightness as a percentage."""
         if (
             not self.capabilities.has_backlight_control
             or not self.capabilities.backlight_path
@@ -217,13 +258,12 @@ class PlatformBackend:
         ):
             return None
         try:
-            actual = int(Path(self.capabilities.backlight_path).read_text(encoding="utf-8").strip())
+            actual = int(Path(self.capabilities.backlight_path).read_text().strip())
             return round((actual / self.capabilities.backlight_max) * 100.0, 1)
-        except Exception:
+        except (OSError, ValueError):
             return None
 
     def set_display_brightness_percent(self, percent: float) -> OperationResult:
-        """Set display brightness percentage (0.0 .. 100.0%)."""
         if not (0.0 <= percent <= 100.0):
             return OperationResult(
                 success=False,
@@ -243,12 +283,15 @@ class PlatformBackend:
                 error_message="Backlight control path or max brightness not resolved.",
             )
 
-        raw_val = int(round((percent / 100.0) * self.capabilities.backlight_max))
-        res = self._safe_write(self.capabilities.backlight_path, str(raw_val), "backlight")
-        if res.success and res.observed_value is not None:
+        raw_value = int(round((percent / 100.0) * self.capabilities.backlight_max))
+        result = self._safe_write(self.capabilities.backlight_path, str(raw_value), "backlight")
+        result.target_value = percent
+        if result.observed_value is not None:
             try:
-                obs_raw = int(res.observed_value)
-                res.observed_value = round((obs_raw / self.capabilities.backlight_max) * 100.0, 1)
-            except ValueError:
+                result.observed_value = round(
+                    (int(result.observed_value) / self.capabilities.backlight_max) * 100.0,
+                    1,
+                )
+            except (TypeError, ValueError):
                 pass
-        return res
+        return result
