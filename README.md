@@ -142,13 +142,11 @@ See [`AGENTS.md`](AGENTS.md) and [`docs/RESEARCH_METHOD.md`](docs/RESEARCH_METHO
 
 ## Current development handoff
 
-Phase-0 code hardening is complete with **22 local tests passing** in the reconstructed test environment.
+The GTK4/libadwaita shell and read-only pages are built, and the first live-machine integration pass has refreshed the read-only baseline and corrected the UI/service boundary. The suite is at **45 passing tests**.
 
-The next task is the Tier-1 frontend build:
+The next task is live write validation under a root session (EPP → boost → brightness, then fan once `oxpec` has a Super X quirk). No hardware write is authorized yet.
 
-> Build the GTK4/libadwaita application shell, navigation, Dashboard and read-only page skeletons using only `ServiceClient`, `CapabilitySnapshot`, `CapabilityRecord` and `ui_manifest.PAGES`. Render disabled/unverified/research-pending states correctly. Do not wire real hardware writes yet.
-
-See [`docs/PHASE0_HANDOFF.md`](docs/PHASE0_HANDOFF.md) and [`ROADMAP.md`](ROADMAP.md).
+See [`docs/LIVE_INTEGRATION_HANDOFF.md`](docs/LIVE_INTEGRATION_HANDOFF.md), [`docs/PHASE0_HANDOFF.md`](docs/PHASE0_HANDOFF.md) and [`ROADMAP.md`](ROADMAP.md).
 
 ## Non-goals for the pre-Astra milestone
 

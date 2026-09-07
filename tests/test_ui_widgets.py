@@ -231,6 +231,45 @@ def create_real_service_shaped_snapshot(
     )
 
 
+def collect_text(widget) -> list[str]:
+    """Collect all user-visible text from a GTK widget subtree."""
+    texts = []
+
+    def walk(w):
+        if isinstance(w, Gtk.Label):
+            text = w.get_text()
+            if text:
+                texts.append(text)
+        if isinstance(w, Adw.ActionRow):
+            if w.get_title():
+                texts.append(w.get_title())
+            if w.get_subtitle():
+                texts.append(w.get_subtitle())
+        child = w.get_first_child()
+        while child:
+            walk(child)
+            child = child.get_next_sibling()
+
+    walk(widget)
+    return texts
+
+
+def collect_row_subtitles(widget) -> list[str]:
+    """Collect only Adw.ActionRow subtitles from a widget subtree."""
+    subtitles = []
+
+    def walk(w):
+        if isinstance(w, Adw.ActionRow) and w.get_subtitle():
+            subtitles.append(w.get_subtitle())
+        child = w.get_first_child()
+        while child:
+            walk(child)
+            child = child.get_next_sibling()
+
+    walk(widget)
+    return subtitles
+
+
 class TestUiWidgets(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -293,6 +332,37 @@ class TestUiWidgets(unittest.TestCase):
         boost_rec = snapshot.by_id(CapabilityId.CPU_BOOST.value)
         self.assertEqual(format_observed_value(boost_rec), "Enabled")
 
+    def test_format_observed_value_dispatches_on_capability_id(self):
+        snapshot = create_real_service_shaped_snapshot()
+        display_rec = snapshot.by_id(CapabilityId.DISPLAY_MODE.value)
+        mini_rec = snapshot.by_id(CapabilityId.MINI_SSD_PRESENCE.value)
+
+        # Same list-shaped value on a non-display capability is not display telemetry.
+        not_display = CapabilityRecord(
+            capability_id=CapabilityId.RGB_CONTROL.value,
+            label="RGB",
+            status=CapabilityStatus.UNAVAILABLE,
+            read_supported=False,
+            write_supported=False,
+            locally_validated=False,
+            observed_value=display_rec.observed_value,
+        )
+        self.assertIn("card1-eDP-1: 2880x1800", format_observed_value(display_rec))
+        self.assertNotIn("card1-eDP-1: 2880x1800", format_observed_value(not_display))
+
+        # Same dict-with-state value on a non-Mini-SSD capability is not Mini SSD data.
+        not_storage = CapabilityRecord(
+            capability_id=CapabilityId.BATTERY_TELEMETRY.value,
+            label="Battery",
+            status=CapabilityStatus.READ_ONLY,
+            read_supported=True,
+            write_supported=False,
+            locally_validated=True,
+            observed_value=mini_rec.observed_value,
+        )
+        self.assertIn("Slot 0000:c4:00.0", format_observed_value(mini_rec))
+        self.assertNotIn("Slot 0000:c4:00.0", format_observed_value(not_storage))
+
     def test_capability_row_with_dropdown_for_epp(self):
         snapshot = create_real_service_shaped_snapshot()
         epp_rec = snapshot.by_id(CapabilityId.CPU_EPP.value)
@@ -347,6 +417,50 @@ class TestUiWidgets(unittest.TestCase):
         )
         card_future = FrostBayResearchCard(future_record)
         self.assertIsNotNone(card_future)
+
+    def test_frost_bay_research_pending_renders_blocked_text(self):
+        snapshot = create_real_service_shaped_snapshot()
+        fb_rec = snapshot.by_id(CapabilityId.FROST_BAY_TELEMETRY.value)
+        card = FrostBayResearchCard(fb_rec)
+        texts = collect_text(card)
+        joined = " ".join(texts)
+
+        self.assertIn("Research Pending • Writes Blocked", joined)
+        self.assertIn("Frost Bay BLE protocol and health semantics have not been validated yet.", joined)
+        self.assertNotIn("Connected", joined)
+
+    def test_frost_bay_validated_does_not_claim_connection_or_protocol_gap(self):
+        """A validated Frost Bay capability must not render 'Connected' or the
+        pre-research 'protocol not validated' fallback text."""
+        future_record = CapabilityRecord(
+            capability_id=CapabilityId.FROST_BAY_TELEMETRY.value,
+            label="Frost Bay Telemetry",
+            status=CapabilityStatus.CONFIRMED_LOCAL,
+            read_supported=True,
+            write_supported=True,
+            locally_validated=True,
+            observed_value="Pump 70% • Flow Healthy",
+            safety_state=SafetyState.NORMAL,
+        )
+        card = FrostBayResearchCard(future_record)
+        texts = collect_text(card)
+        joined = " ".join(texts)
+
+        self.assertIn("Locally Validated", joined)
+        self.assertNotIn("Connected", joined)
+        self.assertNotIn("not yet validated", joined)
+        self.assertNotIn("protocol semantics not validated", joined)
+
+    def test_profiles_use_intent_only_descriptions(self):
+        page = ProfilesPage(PageSpec("profiles", "Profiles", []))
+        subtitles = collect_row_subtitles(page)
+        self.assertEqual(len(subtitles), 4)
+        joined = " ".join(subtitles).lower()
+
+        for banned in ("fan curve", "wattage", "aggressive", "reduced fan", "automatic fan"):
+            self.assertNotIn(banned, joined)
+        self.assertIn("intent:", joined)
+        self.assertIn("blocked until frost bay", joined)
 
     def test_mini_ssd_status_card_dynamic_derivation_and_missing_data(self):
         snapshot = create_real_service_shaped_snapshot()

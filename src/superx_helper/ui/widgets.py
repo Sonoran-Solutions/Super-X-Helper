@@ -9,57 +9,90 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gtk, Pango
 
-from superx_helper.contracts import CapabilityRecord, CapabilityStatus, SafetyState
+from superx_helper.contracts import (
+    CapabilityId,
+    CapabilityRecord,
+    CapabilityStatus,
+    SafetyState,
+)
+
+
+def _format_battery(val: Any) -> Optional[str]:
+    if not isinstance(val, dict) or "capacity_pct" not in val:
+        return None
+    parts: List[str] = []
+    pct = val.get("capacity_pct")
+    if pct is not None:
+        parts.append(f"{pct}%")
+    st = val.get("status")
+    if st:
+        parts.append(str(st))
+    now = val.get("energy_now_wh")
+    full = val.get("energy_full_wh")
+    if now is not None and full is not None:
+        parts.append(f"({now} Wh / {full} Wh)")
+    return " • ".join(parts) if parts else "Present"
+
+
+def _format_display_connectors(val: Any) -> Optional[str]:
+    if not isinstance(val, list):
+        return None
+    conn_strs = []
+    for item in val:
+        if isinstance(item, dict) and item.get("status") == "connected":
+            conn_name = item.get("connector", "Display")
+            mode = item.get("primary_mode") or "Connected"
+            conn_strs.append(f"{conn_name}: {mode}")
+    return ", ".join(conn_strs) if conn_strs else "No active displays"
+
+
+def _format_mini_ssd_presence(val: Any) -> Optional[str]:
+    if not isinstance(val, dict) or "state" not in val:
+        return None
+    state_name = str(val.get("state", "Unknown"))
+    parts = [state_name]
+    pci = val.get("pci_address")
+    if pci:
+        parts.append(f"Slot {pci}")
+    ctrl = val.get("controller")
+    if ctrl:
+        parts.append(f"({ctrl})")
+    return " • ".join(parts)
 
 
 def format_observed_value(record: CapabilityRecord) -> Optional[str]:
-    """Return capability-aware, human-readable representation for observed values."""
+    """Return capability-aware, human-readable representation for observed values.
+
+    Dispatch is keyed on the stable ``capability_id`` first, then the expected
+    data shape is validated.  We never infer meaning from value shape alone, so
+    a list on a non-display capability or a ``state`` dict on a non-storage
+    capability is not misread as another capability's telemetry.
+    """
     val = record.observed_value
     if val is None:
         return None
 
-    # 1. Structured Battery Telemetry (dict)
-    if isinstance(val, dict) and "capacity_pct" in val:
-        parts: List[str] = []
-        pct = val.get("capacity_pct")
-        if pct is not None:
-            parts.append(f"{pct}%")
-        st = val.get("status")
-        if st:
-            parts.append(str(st))
-        now = val.get("energy_now_wh")
-        full = val.get("energy_full_wh")
-        if now is not None and full is not None:
-            parts.append(f"({now} Wh / {full} Wh)")
-        return " • ".join(parts) if parts else "Present"
+    cid = record.capability_id
 
-    # 2. Structured Display Connectors (list of dicts)
-    if isinstance(val, list):
-        conn_strs = []
-        for item in val:
-            if isinstance(item, dict) and item.get("status") == "connected":
-                conn_name = item.get("connector", "Display")
-                mode = item.get("primary_mode") or "Connected"
-                conn_strs.append(f"{conn_name}: {mode}")
-        return ", ".join(conn_strs) if conn_strs else "No active displays"
+    if cid == CapabilityId.BATTERY_TELEMETRY.value:
+        formatted = _format_battery(val)
+        if formatted is not None:
+            return formatted
 
-    # 3. Structured Mini SSD Presence (dict)
-    if isinstance(val, dict) and "state" in val:
-        state_name = str(val.get("state", "Unknown"))
-        parts = [state_name]
-        pci = val.get("pci_address")
-        if pci:
-            parts.append(f"Slot {pci}")
-        ctrl = val.get("controller")
-        if ctrl:
-            parts.append(f"({ctrl})")
-        return " • ".join(parts)
+    if cid == CapabilityId.DISPLAY_MODE.value:
+        formatted = _format_display_connectors(val)
+        if formatted is not None:
+            return formatted
 
-    # 4. Boolean flags (e.g. CPU Boost)
+    if cid == CapabilityId.MINI_SSD_PRESENCE.value:
+        formatted = _format_mini_ssd_presence(val)
+        if formatted is not None:
+            return formatted
+
+    # Scalar fallbacks
     if isinstance(val, bool):
         return "Enabled" if val else "Disabled"
 
-    # 5. Numeric values with units
     if record.unit:
         return f"{val} {record.unit}"
 
@@ -205,8 +238,24 @@ class CapabilityRow(Adw.ActionRow):
                 self.add_suffix(drop_down)
 
 
+_RESEARCH_PENDING_FALLBACK = (
+    "Linux Bluetooth protocol and health semantics are not yet validated. "
+    "No hardware controls or mock telemetry are enabled until research completes."
+)
+_VALIDATED_FALLBACK = (
+    "Frost Bay capability is locally validated. Runtime connection and health "
+    "state are reported separately by the backend and are not implied by this card."
+)
+
+
 class FrostBayResearchCard(Gtk.Box):
-    """Card dynamically deriving Frost Bay state from supplied CapabilityRecord."""
+    """Card rendering Frost Bay validation state from a CapabilityRecord.
+
+    Validation state and runtime connection/health state are separate concepts.
+    A future ``CONFIRMED_LOCAL`` Frost Bay record must not be presented as
+    "Connected", and the pre-research "protocol not validated" wording must not
+    leak onto a validated capability.
+    """
 
     def __init__(self, record_telemetry: Optional[CapabilityRecord] = None):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=8)
@@ -238,15 +287,11 @@ class FrostBayResearchCard(Gtk.Box):
             if status == CapabilityStatus.RESEARCH_PENDING:
                 sub_label = "Research Pending • Writes Blocked"
             elif status == CapabilityStatus.CONFIRMED_LOCAL:
-                sub_label = "Connected • Validated"
+                sub_label = "Locally Validated"
             else:
                 sub_label = f"Status: {status.value}"
 
-            desc_text = (
-                record_telemetry.reason_unavailable
-                or "Linux Bluetooth protocol and health semantics are not yet validated. "
-                   "No hardware controls or mock telemetry are enabled until Phase 1 research completes."
-            )
+            desc_text = record_telemetry.reason_unavailable or _default_desc(status)
 
         status_label = Gtk.Label(label=sub_label)
         status_label.add_css_class("dim-label")
@@ -270,6 +315,14 @@ class FrostBayResearchCard(Gtk.Box):
         if record_telemetry and record_telemetry.warnings:
             for warn in record_telemetry.warnings:
                 self.append(SafetyBanner(warn, record_telemetry.safety_state))
+
+
+def _default_desc(status: CapabilityStatus) -> str:
+    if status == CapabilityStatus.RESEARCH_PENDING:
+        return _RESEARCH_PENDING_FALLBACK
+    if status == CapabilityStatus.CONFIRMED_LOCAL:
+        return _VALIDATED_FALLBACK
+    return ""
 
 
 class MiniSsdStatusCard(Gtk.Box):

@@ -115,11 +115,21 @@ def detect_capabilities(
     caps = PlatformCapabilities()
 
     hwmon_base = sysfs_hwmon or str(rooted(sysfs_root, "/sys/class/hwmon"))
-    oxp_hwmon = find_hwmon_by_name("oxpec", sysfs_hwmon=hwmon_base)
+    # The oxpec platform driver registers its hwmon chip as "oxp_ec" (renamed
+    # from "oxpec" in upstream commit 36a65fa).  Match the current name first
+    # and keep the legacy name as a fallback for older kernels.
+    oxp_hwmon = find_hwmon_by_name("oxp_ec", sysfs_hwmon=hwmon_base) or find_hwmon_by_name(
+        "oxpec", sysfs_hwmon=hwmon_base
+    )
     if oxp_hwmon:
         caps.oxpec_driver_loaded = True
         caps.oxpec_driver_available = True
-        caps.fan_hwmon_name = "oxpec"
+        try:
+            caps.fan_hwmon_name = (oxp_hwmon / "name").read_text(
+                encoding="utf-8"
+            ).strip()
+        except OSError:
+            caps.fan_hwmon_name = "oxp_ec"
         caps.fan_hwmon_path = str(oxp_hwmon)
         pwm1 = oxp_hwmon / "pwm1"
         pwm1_enable = oxp_hwmon / "pwm1_enable"

@@ -7,34 +7,16 @@ research-to-production gate.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import logging
 from pathlib import Path
-from typing import Any, Dict, Iterable, Optional, Set
+from typing import Any, Iterable, Optional, Set
 
 from superx_helper.capabilities import PlatformCapabilities, detect_capabilities
+from superx_helper.contracts import CapabilityId, OperationResult
 
 logger = logging.getLogger(__name__)
 
-
-@dataclass
-class OperationResult:
-    success: bool
-    capability: str
-    target_value: Any
-    observed_value: Any = None
-    error_message: Optional[str] = None
-    dry_run: bool = False
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "success": self.success,
-            "capability": self.capability,
-            "target_value": self.target_value,
-            "observed_value": self.observed_value,
-            "error_message": self.error_message,
-            "dry_run": self.dry_run,
-        }
+__all__ = ["OperationResult", "PlatformBackend"]
 
 
 class PlatformBackend:
@@ -142,16 +124,16 @@ class PlatformBackend:
         if not (0 <= duty_percent <= 100):
             return OperationResult(
                 success=False,
-                capability="fan_control",
+                capability=CapabilityId.INTERNAL_FAN.value,
                 target_value=duty_percent,
                 error_message=f"Duty cycle {duty_percent}% is out of valid range [0, 100].",
             )
-        if not self.is_write_authorized("fan_control"):
-            return self._blocked("fan_control", duty_percent)
+        if not self.is_write_authorized(CapabilityId.INTERNAL_FAN.value):
+            return self._blocked(CapabilityId.INTERNAL_FAN.value, duty_percent)
         if not self.capabilities.has_fan_control or not self.capabilities.fan_pwm_path:
             return OperationResult(
                 success=False,
-                capability="fan_control",
+                capability=CapabilityId.INTERNAL_FAN.value,
                 target_value=duty_percent,
                 error_message="Internal fan control interface is not available.",
             )
@@ -170,7 +152,7 @@ class PlatformBackend:
             if not mode_result.success:
                 return OperationResult(
                     success=False,
-                    capability="fan_control",
+                    capability=CapabilityId.INTERNAL_FAN.value,
                     target_value=duty_percent,
                     observed_value=mode_result.observed_value,
                     error_message=(
@@ -180,7 +162,9 @@ class PlatformBackend:
                 )
 
         raw_pwm = int(round((duty_percent / 100.0) * 255))
-        result = self._safe_write(self.capabilities.fan_pwm_path, str(raw_pwm), "fan_control")
+        result = self._safe_write(
+            self.capabilities.fan_pwm_path, str(raw_pwm), CapabilityId.INTERNAL_FAN.value
+        )
         if result.observed_value is not None:
             try:
                 observed_raw = int(result.observed_value)
@@ -194,11 +178,13 @@ class PlatformBackend:
         if not self.capabilities.has_fan_control or not self.capabilities.fan_pwm_enable_path:
             return OperationResult(
                 success=False,
-                capability="fan_auto",
+                capability=CapabilityId.INTERNAL_FAN.value,
                 target_value=True,
                 error_message="Internal fan mode control is not available.",
             )
-        return self._safe_write(self.capabilities.fan_pwm_enable_path, "2", "fan_auto")
+        return self._safe_write(
+            self.capabilities.fan_pwm_enable_path, "2", CapabilityId.INTERNAL_FAN.value
+        )
 
     def read_epp(self) -> Optional[str]:
         if not self.capabilities.has_epp_control or not self.capabilities.epp_path:
@@ -216,13 +202,13 @@ class PlatformBackend:
         ):
             return OperationResult(
                 success=False,
-                capability="epp",
+                capability=CapabilityId.CPU_EPP.value,
                 target_value=preference,
                 error_message=(
                     f"Preference '{preference}' invalid. Allowed: {self.capabilities.epp_available_preferences}"
                 ),
             )
-        return self._safe_write(self.capabilities.epp_path, pref_clean, "epp")
+        return self._safe_write(self.capabilities.epp_path, pref_clean, CapabilityId.CPU_EPP.value)
 
     def read_cpu_boost(self) -> Optional[bool]:
         if not self.capabilities.has_cpu_boost or not self.capabilities.cpu_boost_path:
@@ -236,14 +222,14 @@ class PlatformBackend:
         if not self.capabilities.has_cpu_boost or not self.capabilities.cpu_boost_path:
             return OperationResult(
                 success=False,
-                capability="cpu_boost",
+                capability=CapabilityId.CPU_BOOST.value,
                 target_value=enable,
                 error_message="CPU boost control path not found.",
             )
         result = self._safe_write(
             self.capabilities.cpu_boost_path,
             "1" if enable else "0",
-            "cpu_boost",
+            CapabilityId.CPU_BOOST.value,
         )
         result.target_value = enable
         if result.observed_value in {"0", "1"}:
@@ -267,7 +253,7 @@ class PlatformBackend:
         if not (0.0 <= percent <= 100.0):
             return OperationResult(
                 success=False,
-                capability="backlight",
+                capability=CapabilityId.DISPLAY_BRIGHTNESS.value,
                 target_value=percent,
                 error_message=f"Brightness {percent}% is out of valid range [0.0, 100.0].",
             )
@@ -278,13 +264,15 @@ class PlatformBackend:
         ):
             return OperationResult(
                 success=False,
-                capability="backlight",
+                capability=CapabilityId.DISPLAY_BRIGHTNESS.value,
                 target_value=percent,
                 error_message="Backlight control path or max brightness not resolved.",
             )
 
         raw_value = int(round((percent / 100.0) * self.capabilities.backlight_max))
-        result = self._safe_write(self.capabilities.backlight_path, str(raw_value), "backlight")
+        result = self._safe_write(
+            self.capabilities.backlight_path, str(raw_value), CapabilityId.DISPLAY_BRIGHTNESS.value
+        )
         result.target_value = percent
         if result.observed_value is not None:
             try:

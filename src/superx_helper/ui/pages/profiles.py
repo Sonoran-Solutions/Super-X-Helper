@@ -23,14 +23,16 @@ class ProfilesPage(BasePage):
         self.profiles_group = Adw.PreferencesGroup()
         self.profiles_group.set_title("Available Hardware Profiles")
         self.profiles_group.set_description(
-            "Profiles exist as named placeholders. No profile state or wattage envelope is claimed without backend service support."
+            "Profiles exist as named placeholders only. No fan curve, wattage "
+            "envelope, or other profile policy is claimed until the service "
+            "contract defines it."
         )
 
         profiles_data = [
-            ("Quiet", "Low noise priority preset • Reduced fan curve", False),
-            ("Balanced", "Standard operating envelope placeholder • Automatic fan curve", False),
-            ("Performance", "High performance profile placeholder • Aggressive fan curve", False),
-            ("Liquid Turbo", "External liquid-cooling profile placeholder • Blocked pending Frost Bay qualification", False),
+            ("Quiet", "Intent: prioritize lower fan noise. Fan/power policy not yet defined.", False),
+            ("Balanced", "Intent: balanced default operation. Profile policy not yet defined.", False),
+            ("Performance", "Intent: prioritize performance. Profile policy not yet defined.", False),
+            ("Liquid Turbo", "Intent: higher performance with Frost Bay cooling. Blocked until Frost Bay qualification.", False),
         ]
 
         for name, desc, is_active in profiles_data:

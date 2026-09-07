@@ -93,6 +93,43 @@ class CapabilityRecord:
         return data
 
 
+@dataclass
+class OperationResult:
+    """Result of a capability-scoped mutation operation.
+
+    ``capability`` carries the stable capability id, so transport layers never
+    need to invent their own operation names or re-derive authorization.
+    """
+
+    success: bool
+    capability: str
+    target_value: Any = None
+    observed_value: Any = None
+    error_message: Optional[str] = None
+    dry_run: bool = False
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "success": self.success,
+            "capability": self.capability,
+            "target_value": self.target_value,
+            "observed_value": self.observed_value,
+            "error_message": self.error_message,
+            "dry_run": self.dry_run,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "OperationResult":
+        return cls(
+            success=bool(data.get("success", False)),
+            capability=str(data.get("capability", "")),
+            target_value=data.get("target_value"),
+            observed_value=data.get("observed_value"),
+            error_message=data.get("error_message"),
+            dry_run=bool(data.get("dry_run", False)),
+        )
+
+
 @dataclass(frozen=True)
 class CapabilitySnapshot:
     schema_version: int

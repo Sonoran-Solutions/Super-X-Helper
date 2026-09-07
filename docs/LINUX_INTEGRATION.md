@@ -15,7 +15,7 @@ The existing baseline was captured on an ONEXPLAYER Super X running Ubuntu 24.04
 | CPU boost state | `/sys/devices/system/cpu/cpufreq/boost` | locally observed read path | `SUPPORTED_UNVERIFIED`; writes disabled until validated |
 | EPP state | `amd-pstate-epp` | locally observed read path | `SUPPORTED_UNVERIFIED`; writes disabled until validated |
 | Package power telemetry | powercap/RAPL | interface observed | read/inventory only; no selected power-target write adapter |
-| Internal fan | `oxpec` / hwmon | kernel module/DMI support present; live module not loaded in captured baseline | `SUPPORTED_UNVERIFIED` |
+| Internal fan | `oxpec` / hwmon | module installed but **no Super X DMI quirk** in this kernel; live module not loaded and would not bind (see live-integration handoff) | `SUPPORTED_UNVERIFIED` |
 | Battery telemetry | power_supply | locally observed | `READ_ONLY` |
 | Charge limit/bypass | unresolved | not exposed by the captured standard battery interface | `UNAVAILABLE` |
 | Thermals | hwmon (`k10temp`, `amdgpu`, `nvme`) | locally observed | `READ_ONLY` |
@@ -62,13 +62,19 @@ Unique SSD serials and Bluetooth addresses are redacted by default.
 
 Before enabling ordinary writes in the UI:
 
-- [ ] run the hardened collector and commit/review a fresh redacted snapshot;
-- [ ] load `oxpec` deliberately and inventory the exact live hwmon attributes;
+- [x] run the hardened collector and commit/review a fresh redacted snapshot (2026-09-07; see `docs/LIVE_INTEGRATION_HANDOFF.md`);
+- [ ] update/backport `oxpec` to a kernel containing the Super X quirk, then load it under root and inventory the `oxp_ec` hwmon attributes;
 - [ ] validate safe fan read/manual/auto behavior and design recovery/rollback;
-- [ ] validate CPU boost/EPP writes on the actual host;
-- [ ] validate brightness mutation under the active desktop session;
+- [ ] validate CPU boost/EPP writes on the actual host (requires root);
+- [ ] validate brightness mutation under the active desktop session (requires root; note the requested-vs-actual gap on `amdgpu_bl1`);
 - [ ] select a compositor-aware resolution/refresh/VRR control path;
 - [ ] choose an evidence-backed power-target mechanism/range;
 - [ ] investigate charge limit/bypass and RGB without assuming support.
+
+### `oxpec` on this kernel
+
+The in-tree driver registers its hwmon chip as **`oxp_ec`** (not `oxpec`), so discovery must look for `oxp_ec` with a legacy `oxpec` fallback — corrected in `capabilities.py`.
+
+The installed `7.0.0-30-generic` module has no `ONEXPLAYER SUPER X` DMI quirk. Upstream added Super X → `oxp_g1_a` support after this kernel (commit `0b6573e`). Until that quirk is present, `oxpec` will not bind on the Super X and fan control remains `SUPPORTED_UNVERIFIED`.
 
 Frost Bay protocol research and Mini SSD fault reproduction are intentionally deferred until the pre-Astra daily-driver checkpoint.

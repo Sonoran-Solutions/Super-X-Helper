@@ -4,7 +4,8 @@ import unittest
 from unittest.mock import patch
 
 from superx_helper.capabilities import find_hwmon_by_name
-from superx_helper.platform import OperationResult, PlatformBackend
+from superx_helper.contracts import CapabilityId, OperationResult
+from superx_helper.platform import PlatformBackend
 
 
 class PlatformTests(unittest.TestCase):
@@ -36,6 +37,19 @@ class PlatformTests(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertEqual(result.name, "hwmon5")
 
+    def test_detect_capabilities_matches_oxp_ec_hwmon_name(self):
+        # The upstream oxpec driver registers its hwmon chip as "oxp_ec".
+        hwmon = self.root / "sys/class/hwmon/hwmon9"
+        hwmon.mkdir(parents=True)
+        (hwmon / "name").write_text("oxp_ec\n")
+        (hwmon / "pwm1").write_text("100\n")
+        (hwmon / "pwm1_enable").write_text("2\n")
+
+        backend = PlatformBackend(sysfs_root=str(self.root))
+        self.assertTrue(backend.capabilities.oxpec_driver_loaded)
+        self.assertTrue(backend.capabilities.has_fan_control)
+        self.assertEqual(backend.capabilities.fan_hwmon_name, "oxp_ec")
+
     def test_discovery_does_not_authorize_writes(self):
         backend = PlatformBackend(sysfs_root=str(self.root))
         self.assertTrue(backend.capabilities.has_cpu_boost)
@@ -46,7 +60,10 @@ class PlatformTests(unittest.TestCase):
         self.assertEqual(Path(backend.capabilities.cpu_boost_path).read_text(), before)
 
     def test_authorized_fake_write(self):
-        backend = PlatformBackend(sysfs_root=str(self.root), authorized_writes={"cpu_boost"})
+        backend = PlatformBackend(
+            sysfs_root=str(self.root),
+            authorized_writes={CapabilityId.CPU_BOOST.value},
+        )
         result = backend.set_cpu_boost(False)
         self.assertTrue(result.success)
         self.assertFalse(result.observed_value)
@@ -67,7 +84,10 @@ class PlatformTests(unittest.TestCase):
         self.assertIn("did not verify", result.error_message)
 
     def test_failed_manual_mode_prevents_fan_duty_write(self):
-        backend = PlatformBackend(sysfs_root=str(self.root), authorized_writes={"fan_control"})
+        backend = PlatformBackend(
+            sysfs_root=str(self.root),
+            authorized_writes={CapabilityId.INTERNAL_FAN.value},
+        )
         calls = []
         def fake_safe_write(path, value, capability):
             calls.append(capability)

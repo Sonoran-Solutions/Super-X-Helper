@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
-from typing import Dict, Iterable, Optional, Set
+from typing import Any, Dict, Iterable, Optional, Set
 
 from superx_helper.capabilities import PlatformCapabilities
 from superx_helper.collector import get_battery_info, get_display_info
@@ -12,16 +12,30 @@ from superx_helper.contracts import (
     CapabilityRecord,
     CapabilitySnapshot,
     CapabilityStatus,
+    OperationResult,
     SafetyState,
 )
 from superx_helper.platform import PlatformBackend
+
+
+def coerce_capability_id(value: Any) -> Optional[CapabilityId]:
+    """Resolve a transport-facing value to a stable capability id, if any."""
+    if isinstance(value, CapabilityId):
+        return value
+    if isinstance(value, str):
+        for member in CapabilityId:
+            if member.value == value:
+                return member
+    return None
 
 
 class SuperXService:
     """Stable application-facing facade.
 
     The future D-Bus service should serialize this contract instead of exposing
-    raw sysfs paths or backend implementation details.
+    raw sysfs paths or backend implementation details.  Mutations are typed and
+    capability-scoped; authorization is decided here (service-side) and enforced
+    again by the platform backend using the same stable capability ids.
     """
 
     def __init__(
@@ -29,11 +43,84 @@ class SuperXService:
         platform: Optional[PlatformBackend] = None,
         validated_writes: Optional[Iterable[str]] = None,
     ):
-        self.platform = platform or PlatformBackend()
         self.validated_writes: Set[str] = set(validated_writes or [])
+        self.platform = platform or PlatformBackend(
+            authorized_writes=self.validated_writes
+        )
 
     def _write_authorized(self, capability_id: CapabilityId) -> bool:
         return capability_id.value in self.validated_writes
+
+    def set_capability(self, capability_id: Any, value: Any) -> OperationResult:
+        """Apply a single capability-scoped mutation.
+
+        The capability id is validated against the stable contract and must be
+        production-authorized before the typed backend operation is dispatched.
+        Read-only/unwritable capabilities fail closed here.
+        """
+        cid = coerce_capability_id(capability_id)
+        if cid is None:
+            return OperationResult(
+                success=False,
+                capability=str(capability_id),
+                target_value=value,
+                error_message=f"Unknown capability id {capability_id!r}.",
+            )
+
+        if not self._write_authorized(cid):
+            return OperationResult(
+                success=False,
+                capability=cid.value,
+                target_value=value,
+                error_message=(
+                    f"Write capability '{cid.value}' is not production-authorized "
+                    "on this hardware."
+                ),
+            )
+
+        if cid == CapabilityId.CPU_BOOST:
+            if not isinstance(value, bool):
+                return OperationResult(
+                    success=False,
+                    capability=cid.value,
+                    target_value=value,
+                    error_message="CPU Boost expects a boolean value.",
+                )
+            return self.platform.set_cpu_boost(value)
+
+        if cid == CapabilityId.CPU_EPP:
+            return self.platform.set_epp(str(value))
+
+        if cid == CapabilityId.INTERNAL_FAN:
+            try:
+                duty = int(value)
+            except (TypeError, ValueError):
+                return OperationResult(
+                    success=False,
+                    capability=cid.value,
+                    target_value=value,
+                    error_message="Internal Fan expects an integer duty percentage.",
+                )
+            return self.platform.set_fan_duty(duty)
+
+        if cid == CapabilityId.DISPLAY_BRIGHTNESS:
+            try:
+                percent = float(value)
+            except (TypeError, ValueError):
+                return OperationResult(
+                    success=False,
+                    capability=cid.value,
+                    target_value=value,
+                    error_message="Display Brightness expects a numeric percentage.",
+                )
+            return self.platform.set_display_brightness_percent(percent)
+
+        return OperationResult(
+            success=False,
+            capability=cid.value,
+            target_value=value,
+            error_message=f"Capability '{cid.value}' is not a writable capability.",
+        )
 
     def get_capability_snapshot(self) -> CapabilitySnapshot:
         """Return the cheap, UI-safe capability snapshot.

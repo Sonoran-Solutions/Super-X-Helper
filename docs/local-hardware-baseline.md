@@ -100,3 +100,14 @@ Treat fan control as `SUPPORTED_UNVERIFIED` until a deliberate live validation p
 - manual/automatic transition semantics;
 - safe write behavior;
 - recovery/rollback behavior.
+
+---
+
+## 2026-09-07 re-capture delta
+
+A fresh read-only capture on the live machine (see `docs/LIVE_INTEGRATION_HANDOFF.md`) confirmed the baseline above and added these observations:
+
+- **External display connected:** `card1-HDMI-A-1` at 3840×2160 in addition to the internal `card1-eDP-1` (2880×1800).
+- **Internal SSD PCI ID:** KIOXIA internal NVMe observed as `1e0f:0033` (the original baseline recorded model/firmware/link but not the PCI ID).
+- **Backlight requested vs actual:** `amdgpu_bl1` shows requested `brightness` 460697 (≈93.1 %) but `actual_brightness` 433882 (≈87.7 %); noted for future brightness-write validation.
+- **`oxpec` correction:** the installed `7.0.0-30-generic` module has **no `ONEXPLAYER SUPER X` DMI quirk** (only `G1 A`/`G1 i` and a legacy `ONE XPLAYER` alias). Upstream added Super X → `oxp_g1_a` after this kernel (commit `0b6573e`). The module would therefore not bind on this host; fan control remains `SUPPORTED_UNVERIFIED`. The driver also registers its hwmon as `oxp_ec`, not `oxpec` (corrected in `capabilities.py`).
