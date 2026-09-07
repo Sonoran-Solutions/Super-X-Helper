@@ -23,14 +23,14 @@ class ProfilesPage(BasePage):
         self.profiles_group = Adw.PreferencesGroup()
         self.profiles_group.set_title("Available Hardware Profiles")
         self.profiles_group.set_description(
-            "Pre-Astra profile management is read-only. Dynamic switching requires privileged daemon authorization."
+            "Profiles exist as named placeholders. No profile state or wattage envelope is claimed without backend service support."
         )
 
         profiles_data = [
-            ("Quiet", "Low power envelope (15W - 28W) • Silent fan curve", False),
-            ("Balanced", "Default balanced envelope (35W - 45W) • Automatic fan curve", True),
-            ("Performance", "Maximum air-cooled envelope (54W - 65W) • Aggressive fan curve", False),
-            ("Liquid Turbo", "120W envelope • Reserved for validated Frost Bay dock (Blocked)", False),
+            ("Quiet", "Low noise priority preset • Reduced fan curve", False),
+            ("Balanced", "Standard operating envelope placeholder • Automatic fan curve", False),
+            ("Performance", "High performance profile placeholder • Aggressive fan curve", False),
+            ("Liquid Turbo", "External liquid-cooling profile placeholder • Blocked pending Frost Bay qualification", False),
         ]
 
         for name, desc, is_active in profiles_data:

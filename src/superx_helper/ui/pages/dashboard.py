@@ -27,12 +27,12 @@ class DashboardPage(Adw.PreferencesPage):
         self.spec = spec or PageSpec("dashboard", "Dashboard", [])
         self.set_title("Dashboard")
 
-        # Active Profile group
+        # System Performance Profile placeholder group
         self.profile_group = Adw.PreferencesGroup()
         self.profile_group.set_title("System Performance Profile")
         profile_row = Adw.ActionRow()
         profile_row.set_title("Active Profile")
-        profile_row.set_subtitle("Balanced (Default) • Unverified local mode")
+        profile_row.set_subtitle("No active profile configured in service • Named placeholders only")
         self.profile_group.add(profile_row)
         self.add(self.profile_group)
 

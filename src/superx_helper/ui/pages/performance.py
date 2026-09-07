@@ -35,7 +35,7 @@ class PerformancePage(BasePage):
         self.liquid_group = Adw.PreferencesGroup()
         self.liquid_group.set_title("Liquid-Cooled High Power Envelope")
         liquid_row = Adw.ActionRow()
-        liquid_row.set_title("120 W Liquid Turbo Envelope")
+        liquid_row.set_title("Liquid Turbo Envelope")
         liquid_row.set_subtitle(
             "Unavailable • Blocked pending Frost Bay protocol and safety qualification"
         )

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Dict, List, Optional
 
 import gi
 gi.require_version("Gtk", "4.0")
@@ -10,6 +10,60 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gtk, Pango
 
 from superx_helper.contracts import CapabilityRecord, CapabilityStatus, SafetyState
+
+
+def format_observed_value(record: CapabilityRecord) -> Optional[str]:
+    """Return capability-aware, human-readable representation for observed values."""
+    val = record.observed_value
+    if val is None:
+        return None
+
+    # 1. Structured Battery Telemetry (dict)
+    if isinstance(val, dict) and "capacity_pct" in val:
+        parts: List[str] = []
+        pct = val.get("capacity_pct")
+        if pct is not None:
+            parts.append(f"{pct}%")
+        st = val.get("status")
+        if st:
+            parts.append(str(st))
+        now = val.get("energy_now_wh")
+        full = val.get("energy_full_wh")
+        if now is not None and full is not None:
+            parts.append(f"({now} Wh / {full} Wh)")
+        return " • ".join(parts) if parts else "Present"
+
+    # 2. Structured Display Connectors (list of dicts)
+    if isinstance(val, list):
+        conn_strs = []
+        for item in val:
+            if isinstance(item, dict) and item.get("status") == "connected":
+                conn_name = item.get("connector", "Display")
+                mode = item.get("primary_mode") or "Connected"
+                conn_strs.append(f"{conn_name}: {mode}")
+        return ", ".join(conn_strs) if conn_strs else "No active displays"
+
+    # 3. Structured Mini SSD Presence (dict)
+    if isinstance(val, dict) and "state" in val:
+        state_name = str(val.get("state", "Unknown"))
+        parts = [state_name]
+        pci = val.get("pci_address")
+        if pci:
+            parts.append(f"Slot {pci}")
+        ctrl = val.get("controller")
+        if ctrl:
+            parts.append(f"({ctrl})")
+        return " • ".join(parts)
+
+    # 4. Boolean flags (e.g. CPU Boost)
+    if isinstance(val, bool):
+        return "Enabled" if val else "Disabled"
+
+    # 5. Numeric values with units
+    if record.unit:
+        return f"{val} {record.unit}"
+
+    return str(val)
 
 
 class StatusBadge(Gtk.Label):
@@ -86,19 +140,21 @@ class CapabilityRow(Adw.ActionRow):
         self.record = record
         self.set_title(record.label)
 
-        # Construct subtitle describing observed value and status
+        # Construct subtitle using capability-aware formatting
         sub_parts = []
-        if record.observed_value is not None:
-            val_str = f"{record.observed_value}"
-            if record.unit:
-                val_str += f" {record.unit}"
+        val_str = format_observed_value(record)
+        if val_str is not None:
             sub_parts.append(f"Observed: {val_str}")
         elif record.reason_unavailable:
             sub_parts.append(record.reason_unavailable)
         else:
             sub_parts.append(f"Backend: {record.backend} ({record.owner})")
 
-        if record.allowed_values and not record.can_write:
+        # Mention allowed values in subtitle only if discrete control is not rendered
+        is_boolean = record.allowed_values == [False, True]
+        has_dropdown = bool(record.allowed_values and len(record.allowed_values) > 1 and not is_boolean)
+
+        if record.allowed_values and not record.can_write and not has_dropdown:
             sub_parts.append(f"Allowed: {', '.join(str(v) for v in record.allowed_values)}")
 
         self.set_subtitle(" • ".join(sub_parts))
@@ -109,7 +165,7 @@ class CapabilityRow(Adw.ActionRow):
 
         # Add disabled control placeholder reflecting write state
         if record.write_supported:
-            if record.allowed_values == [False, True]:
+            if is_boolean:
                 sw = Gtk.Switch()
                 sw.set_valign(Gtk.Align.CENTER)
                 sw.set_active(bool(record.observed_value))
@@ -133,10 +189,24 @@ class CapabilityRow(Adw.ActionRow):
                         "Control is read-only: writes are disabled pending local validation."
                     )
                 self.add_suffix(scale)
+            elif has_dropdown:
+                # Multiple discrete allowed values (e.g. EPP preferences)
+                str_items = [str(v) for v in record.allowed_values]
+                string_list = Gtk.StringList.new(str_items)
+                drop_down = Gtk.DropDown.new(string_list, None)
+                drop_down.set_valign(Gtk.Align.CENTER)
+                if record.observed_value is not None and str(record.observed_value) in str_items:
+                    drop_down.set_selected(str_items.index(str(record.observed_value)))
+                drop_down.set_sensitive(record.can_write)
+                if not record.can_write:
+                    drop_down.set_tooltip_text(
+                        "Control is read-only: writes are disabled pending local validation."
+                    )
+                self.add_suffix(drop_down)
 
 
 class FrostBayResearchCard(Gtk.Box):
-    """Explicit Adwaita card rendering the Frost Bay research-pending status."""
+    """Card dynamically deriving Frost Bay state from supplied CapabilityRecord."""
 
     def __init__(self, record_telemetry: Optional[CapabilityRecord] = None):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=8)
@@ -146,7 +216,7 @@ class FrostBayResearchCard(Gtk.Box):
         self.set_margin_start(12)
         self.set_margin_end(12)
 
-        # Title row
+        # Header row
         header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         icon = Gtk.Image.new_from_icon_name("weather-snow-symbolic")
         icon.set_icon_size(Gtk.IconSize.LARGE)
@@ -159,31 +229,51 @@ class FrostBayResearchCard(Gtk.Box):
         title.set_xalign(0.0)
         title_box.append(title)
 
-        status_text = Gtk.Label(label="Research Pending • Writes Blocked")
-        status_text.add_css_class("dim-label")
-        status_text.add_css_class("caption")
-        status_text.set_xalign(0.0)
-        title_box.append(status_text)
+        if record_telemetry is None:
+            sub_label = "Status: Unknown"
+            status = CapabilityStatus.UNAVAILABLE
+            desc_text = "No Frost Bay telemetry capability record provided by backend."
+        else:
+            status = record_telemetry.status
+            if status == CapabilityStatus.RESEARCH_PENDING:
+                sub_label = "Research Pending • Writes Blocked"
+            elif status == CapabilityStatus.CONFIRMED_LOCAL:
+                sub_label = "Connected • Validated"
+            else:
+                sub_label = f"Status: {status.value}"
+
+            desc_text = (
+                record_telemetry.reason_unavailable
+                or "Linux Bluetooth protocol and health semantics are not yet validated. "
+                   "No hardware controls or mock telemetry are enabled until Phase 1 research completes."
+            )
+
+        status_label = Gtk.Label(label=sub_label)
+        status_label.add_css_class("dim-label")
+        status_label.add_css_class("caption")
+        status_label.set_xalign(0.0)
+        title_box.append(status_label)
         header.append(title_box)
 
-        badge = StatusBadge(CapabilityStatus.RESEARCH_PENDING)
-        header.append(badge)
+        header.append(StatusBadge(status))
         self.append(header)
 
-        # Notice text
-        desc = Gtk.Label(
-            label="Linux Bluetooth protocol and health semantics are not yet validated. "
-            "No hardware controls or mock telemetry are enabled until Phase 1 research completes."
-        )
+        # Description text
+        desc = Gtk.Label(label=desc_text)
         desc.set_wrap(True)
         desc.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
         desc.set_xalign(0.0)
         desc.add_css_class("dim-label")
         self.append(desc)
 
+        # Render any warnings present in record
+        if record_telemetry and record_telemetry.warnings:
+            for warn in record_telemetry.warnings:
+                self.append(SafetyBanner(warn, record_telemetry.safety_state))
+
 
 class MiniSsdStatusCard(Gtk.Box):
-    """Adwaita card rendering Mini SSD presence alongside NOT_QUALIFIED reliability status."""
+    """Card dynamically deriving Mini SSD presence and reliability from CapabilityRecords."""
 
     def __init__(
         self,
@@ -210,11 +300,13 @@ class MiniSsdStatusCard(Gtk.Box):
         title.set_xalign(0.0)
         title_box.append(title)
 
-        state_str = (
-            f"State: {presence.observed_value}"
-            if (presence and presence.observed_value)
-            else "State: Detected"
-        )
+        if presence is None or presence.observed_value is None:
+            state_str = "State: Unknown"
+            presence_status = presence.status if presence else CapabilityStatus.UNAVAILABLE
+        else:
+            state_str = f"State: {format_observed_value(presence)}"
+            presence_status = presence.status
+
         state_label = Gtk.Label(label=state_str)
         state_label.add_css_class("dim-label")
         state_label.add_css_class("caption")
@@ -222,15 +314,20 @@ class MiniSsdStatusCard(Gtk.Box):
         title_box.append(state_label)
         header.append(title_box)
 
-        # Badges
-        if presence:
-            header.append(StatusBadge(presence.status))
+        header.append(StatusBadge(presence_status))
         self.append(header)
 
-        # Reliability warning
-        warning_msg = (
-            "Reliability: NOT QUALIFIED\n"
-            "Do not use the Mini SSD as the only copy of important data until qualification testing passes."
-        )
-        banner = SafetyBanner(warning_msg, SafetyState.NOT_QUALIFIED)
-        self.append(banner)
+        # Derive reliability banner
+        if reliability is None:
+            self.append(SafetyBanner("Reliability: Unknown", SafetyState.UNKNOWN))
+        else:
+            rel_val = reliability.observed_value or reliability.safety_state.value
+            rel_header = f"Reliability: {rel_val}"
+            if reliability.warnings:
+                msg = rel_header + "\n" + "\n".join(reliability.warnings)
+            elif reliability.reason_unavailable:
+                msg = rel_header + "\n" + reliability.reason_unavailable
+            else:
+                msg = rel_header
+
+            self.append(SafetyBanner(msg, reliability.safety_state))
