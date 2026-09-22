@@ -13,7 +13,7 @@ trusted read-only evidence
 → stable capability/service contract
 → GTK daily-driver UI + ordinary Linux integration
 → PRE-ASTRA GATE
-→ Frost Bay / Mini SSD deep research
+→ Frost Bay local validation / Mini SSD deep research
 ```
 
 Do not jump into Frost Bay protocol writes or Mini SSD fault experiments while doing ordinary frontend/backend work.
@@ -27,6 +27,8 @@ Before changing code:
 - `ROADMAP.md`
 - `docs/UI_CONTRACT.md`
 - `docs/PHASE0_HANDOFF.md`
+- `docs/LIVE_INTEGRATION_HANDOFF.md`
+- `docs/UPSTREAM_OWNERSHIP.md`
 - the relevant hardware research doc.
 
 ## Evidence levels
@@ -54,7 +56,7 @@ Frontend/backend state uses:
 - `ERROR`
 
 Mini SSD reliability is `NOT_QUALIFIED` until the qualification track passes.
-Frost Bay is `RESEARCH_PENDING` until protocol research passes.
+Frost Bay remains locally `RESEARCH_PENDING` until the published protocol is reproduced on this unit and transport/freshness/health semantics pass the production gate.
 
 ## Discovery is not authorization
 
@@ -84,6 +86,19 @@ backend
 
 Do not place shell commands, sysfs paths, EC registers or BLE packet bytes in widgets, profiles or user configuration.
 
+## Repeat-work guard
+
+Before implementing fan curves, TDP, battery charge/bypass, RGB, or OneXPlayer-specific capability detection, review `docs/UPSTREAM_OWNERSHIP.md` and the maintained upstream implementations it links.
+
+In particular:
+
+- audit Loadout before building generic hwmon fan/TDP machinery;
+- audit the public Frost Bay protocol and HHD implementations before any new protocol archaeology;
+- treat upstream code as evidence/design input, not as proof of local Super X compatibility;
+- record attribution/license obligations when source code is reused.
+
+If upstream already solves the generic problem, the default task is **audit + adapt + locally validate**, not **invent from scratch**.
+
 ## EC/platform safety
 
 - no undocumented EC writes for convenience;
@@ -96,16 +111,18 @@ Do not place shell commands, sysfs paths, EC registers or BLE packet bytes in wi
 
 ## Frost Bay safety
 
-Research order:
+Research/validation order:
 
-1. passive device discovery;
-2. GATT map;
-3. safe reads/notifications;
-4. static OneXConsole analysis;
-5. controlled known-good Windows observation if needed;
-6. one understood benign Linux write;
-7. repeatability/disconnect behavior;
-8. typed production backend.
+1. review the published `tbitu/onexplayer-frostbay-bluetooth` protocol and current HHD implementations;
+2. identify the local Frost Bay and BlueZ adapter;
+3. reproduce Connected + ServicesResolved + FFE0/FFE1 visibility;
+4. read and independently confirm the minimum telemetry/freshness fields needed for health;
+5. test built-in-adapter reliability and an external-adapter fallback only if needed;
+6. implement the typed read-only backend;
+7. reproduce one understood benign published write with before/read-back/restore evidence;
+8. validate disconnect/stale/fault behavior before production control.
+
+Do not repeat static OneXConsole archaeology or basic UUID/command discovery unless local evidence contradicts the published reference.
 
 No blind writes, fuzzing, unexplained replay, or max-value first tests.
 
@@ -145,9 +162,11 @@ Explicit local identifier opt-in is allowed when it is genuinely needed for diag
 - **Tier 1:** Gemini 3.8 Flash / DeepSeek V4 Flash — UI/scaffolding/tests/docs/mechanical work.
 - **Tier 2:** GPT-5.6 Terra — serious engineering, Linux/backend integration, review.
 - **Tier 3:** DeepSeek V4 Pro — hard debugging/static RE.
-- **Tier 4:** GPT-6 Astra — undocumented protocol/fault-isolation research.
+- **Tier 4:** GPT-6 Astra — genuinely unresolved protocol/fault-isolation research after upstream evidence is exhausted.
 
-Astra should inherit evidence from cheaper models. After research resolves an unknown, step back down for implementation.
+Frost Bay's basic protocol is no longer a default Tier-4 task. Use Astra there only for unexplained local divergence or safety-critical unknowns. The Mini SSD investigation remains a legitimate Tier-4 candidate.
+
+Astra should inherit evidence from cheaper models and maintained upstream work. After research resolves an unknown, step back down for implementation.
 
 ## Tests
 
