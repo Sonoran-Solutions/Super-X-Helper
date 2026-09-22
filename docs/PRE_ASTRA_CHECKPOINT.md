@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Before spending premium research-model budget on Frost Bay protocol reverse engineering or the Mini SSD reliability investigation, Super X Helper should already be useful as a Linux-native replacement for the ordinary OneXConsole features that can be implemented with known Linux interfaces.
+Before spending premium research-model budget on unresolved hardware problems, Super X Helper should already be useful as a Linux-native replacement for the ordinary OneXConsole features that can be implemented with known Linux interfaces. Since this checkpoint was first written, the basic Frost Bay protocol has been published and implemented in community Linux work; that removes most of the original protocol-discovery burden.
 
 The checkpoint exists to separate two classes of work:
 
@@ -17,12 +17,12 @@ KNOWN / INTEGRATION WORK
 - diagnostics
 - basic Mini SSD presence/temperature/link state
 
-UNKNOWN / RESEARCH WORK
-- Frost Bay BLE protocol + health/control semantics
-- Mini SSD disappearance/root cause + reliability qualification
+VALIDATION / RESEARCH WORK
+- Frost Bay: reproduce published BLE transport/telemetry on this Super X, validate health/fallback
+- Mini SSD: disappearance/root cause + reliability qualification
 ```
 
-Astra should be reserved for the second class.
+Premium research should be reserved for genuinely unresolved behavior. Do not spend it rediscovering public Frost Bay UUIDs or basic command semantics.
 
 ## Product target
 
@@ -49,7 +49,7 @@ The UI must render backend capability state instead of assuming every control ex
 
 Recommended normalized states:
 
-- `AVAILABLE_READ_WRITE` — locally validated telemetry and control.
+- `CONFIRMED_LOCAL` — locally validated capability; write permission still depends on the record's authorization/safety fields.
 - `READ_ONLY` — trustworthy telemetry exists; control is unavailable or not yet validated.
 - `SUPPORTED_UNVERIFIED` — source/interface evidence exists, but this exact hardware path has not passed the production gate.
 - `RESEARCH_PENDING` — a separate evidence/reverse-engineering task is required.
@@ -77,7 +77,7 @@ Pre-Astra examples:
 ```text
 Frost Bay
 RESEARCH PENDING
-Linux control protocol not yet validated
+Published protocol exists; local BlueZ transport/health not yet validated
 ```
 
 ```text
@@ -114,9 +114,9 @@ Once `oxpec` behavior is validated on the actual Super X:
 
 ### Frost Bay
 
-Reserve a section/card in the same page before the protocol exists. It must be visibly disabled or `RESEARCH_PENDING`; do not hide the future architecture and do not simulate telemetry.
+Keep the existing section/card disabled as `RESEARCH_PENDING` until the published Frost Bay protocol has been reproduced on the local unit and freshness/health behavior is defined. Do not simulate telemetry.
 
-After research, the same UI should activate from backend capabilities rather than require a separate redesign.
+The protocol reference now exists; the remaining task is local BlueZ transport validation and safe backend integration. The same UI should activate from backend capabilities rather than require a redesign.
 
 ## Display page
 
@@ -255,9 +255,10 @@ Default exported diagnostics should redact unnecessary unique hardware identifie
 
 **GPT-5.6 Terra Medium**
 
+- audit/adapt Loadout fan/TDP patterns before new generic hardware-control code;
 - privileged boundary;
 - transactional profiles;
-- safe sysfs/DBus integration;
+- safe sysfs/D-Bus integration;
 - hardware-write correctness;
 - review of Flash-tier output.
 
@@ -271,12 +272,12 @@ Use for difficult RGB/HID/static archaeology or a stubborn cross-layer integrati
 
 **GPT-6 Astra High**
 
-Only after the checkpoint, for:
+Only after the checkpoint, for unresolved questions that remain after current upstream evidence is consumed:
 
-1. Frost Bay protocol semantics + first safe proof-of-control.
+1. Frost Bay only if the local Super X materially disagrees with the published protocol/BlueZ implementations or a safety-critical health semantic remains unexplained.
 2. Mini SSD fault isolation + evidence-backed mitigation experiment.
 
-Astra should inherit a concise evidence packet and an already-defined backend/UI contract.
+The default Frost Bay path is now Tier-2 audit/reproduction/integration, not Tier-4 protocol discovery. Astra should inherit a concise evidence packet and an already-defined backend/UI contract.
 
 ## Exit criteria
 
@@ -286,8 +287,8 @@ The checkpoint passes when:
 - CPU/performance, internal fan, display, battery, diagnostics and profiles are integrated where Linux support exists;
 - the quick-access workflow exists;
 - basic Mini SSD telemetry is visible but reliability is explicitly unqualified;
-- Frost Bay has a first-class UI/backend placeholder but no guessed protocol implementation;
+- Frost Bay has a first-class UI/backend placeholder and remains disabled until the published protocol is locally reproduced;
 - ordinary unresolved features are either documented follow-ups or explicitly classified as separate research problems;
 - no Tier-4 work is required to use the majority of the application.
 
-After this gate, Frost Bay and Mini SSD research can proceed independently without forcing a redesign of the application.
+After this gate, Frost Bay local validation/integration and Mini SSD research can proceed independently without forcing a redesign of the application.
