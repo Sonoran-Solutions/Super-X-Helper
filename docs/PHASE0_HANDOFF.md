@@ -1,6 +1,8 @@
 # Phase-0 Tier-2 Handoff
 
-**Status:** code hardening complete; live hardware re-capture still recommended before enabling any writes.
+**Status:** historical Phase-0 handoff. Code hardening completed here; the later 2026-09-07 live integration pass supersedes its hardware assumptions and frontend-next-task guidance.
+
+> **2026-09-22 planning note:** the GTK shell/read-only pages are already implemented; the captured kernel was later proven to lack the Super X `oxpec` DMI quirk; Loadout must be audited before production fan/TDP machinery; and Frost Bay basic protocol discovery has been superseded by public FFE0/FFE1 work. Use `ROADMAP.md`, `docs/LIVE_INTEGRATION_HANDOFF.md`, and `docs/UPSTREAM_OWNERSHIP.md` for current next steps.
 
 ## What changed
 
@@ -34,7 +36,7 @@ These facts were directly captured on the development Super X before this pass:
 - KIOXIA internal NVMe and BIWIN Mini SSD PCIe/NVMe identities observed;
 - Mini SSD observed at PCIe Gen4 x2 during the baseline;
 - MediaTek Bluetooth adapter on `hci0` observed;
-- `oxpec` module file and Super X DMI match present, but it was **not loaded during the captured baseline**.
+- `oxpec` module file was present. **Later live integration disproved the original assumption that this kernel contained a Super X DMI match**: Ubuntu kernel `7.0.0-30-generic` lacks the Super X quirk and exposes no live `oxp_ec` hwmon. See `docs/LIVE_INTEGRATION_HANDOFF.md`.
 
 ## Production-qualified write capabilities
 
@@ -92,9 +94,9 @@ platform / storage / future Frost Bay backends
 
 Keep the Python core. Use GTK4/libadwaita via PyGObject. Target Ubuntu `.deb` packaging. Keep profiles as versioned high-level JSON under the user's XDG config directory.
 
-## Exact frontend interfaces
+## Frontend interfaces implemented after this handoff
 
-The next frontend model should consume only:
+The GTK frontend was subsequently built against the intended narrow surface. Frontend code consumes only:
 
 ```text
 CapabilitySnapshot
@@ -130,8 +132,13 @@ Coverage added for:
 - Mini SSD `NOT_QUALIFIED` state;
 - stable UI page manifest.
 
-## Recommended next task
+## Recommended next task — superseded
 
-Use a Tier-1 frontend model (Gemini 3.8 Flash or DeepSeek V4 Flash) to build the **GTK application shell + Dashboard + read-only page skeletons** against `ServiceClient` and `ui_manifest.PAGES`.
+The frontend task originally recommended here is complete.
 
-Do not wire real writes in that task. The goal is to make every page render the capability contract correctly—including disabled/unverified/research-pending states—then hand the result back to Terra for live Linux integration and write-path validation.
+Current sequencing is maintained in `ROADMAP.md`. In short:
+
+1. audit Loadout's fan/TDP implementation before building generic production control logic;
+2. validate a kernel/backport containing the Super X `oxpec` quirk and inventory `oxp_ec` under root;
+3. validate EPP → boost → brightness → fan as separate reversible operations;
+4. treat Frost Bay as a local BlueZ/health validation task using the published protocol rather than a from-scratch reverse-engineering mission.
