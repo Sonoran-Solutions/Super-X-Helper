@@ -42,6 +42,31 @@ Mini SSD disappearance/reliability remains unresolved and is still the primary p
 
 See docs/LIVE_INTEGRATION_HANDOFF.md, docs/UPSTREAM_OWNERSHIP.md, docs/FROST_BAY.md, and docs/MINI_SSD.md.
 
+## GitHub issue map
+
+Use [#21 — Roadmap tracker](https://github.com/Sonoran-Solutions/Super-X-Helper/issues/21) as the GitHub-level progress view.
+
+| Roadmap area | Issue |
+|---|---|
+| `SX-UPSTREAM-001` Loadout audit | [#7](https://github.com/Sonoran-Solutions/Super-X-Helper/issues/7) |
+| `SX-CORE-002` oxpec/oxp_ec live validation | [#8](https://github.com/Sonoran-Solutions/Super-X-Helper/issues/8) |
+| `SX-CORE-003` ordinary write qualification | [#9](https://github.com/Sonoran-Solutions/Super-X-Helper/issues/9) |
+| `SX-CORE-004` production TDP backend | [#10](https://github.com/Sonoran-Solutions/Super-X-Helper/issues/10) |
+| `SX-CORE-005` D-Bus/polkit production boundary | [#11](https://github.com/Sonoran-Solutions/Super-X-Helper/issues/11) |
+| `SX-UI-003/005/006` Performance/Display/Power activation | [#12](https://github.com/Sonoran-Solutions/Super-X-Helper/issues/12) |
+| `SX-UI-004` internal fan controls/curves | [#13](https://github.com/Sonoran-Solutions/Super-X-Helper/issues/13) |
+| `SX-UI-007/008` controller/gyro/RGB integration audit | [#14](https://github.com/Sonoran-Solutions/Super-X-Helper/issues/14) |
+| `SX-UI-009` transactional profiles | [#15](https://github.com/Sonoran-Solutions/Super-X-Helper/issues/15) |
+| `SX-UI-010` quick access | [#16](https://github.com/Sonoran-Solutions/Super-X-Helper/issues/16) |
+| Frost Bay validation (`SX-FB-002..006`) | [#4](https://github.com/Sonoran-Solutions/Super-X-Helper/issues/4) |
+| Frost Bay production + liquid safety (`SX-FB-007`, `SX-INTEGRATE-001/002`) | [#17](https://github.com/Sonoran-Solutions/Super-X-Helper/issues/17) |
+| Mini SSD root cause (`SX-SSD-001..004`) | [#5](https://github.com/Sonoran-Solutions/Super-X-Helper/issues/5) |
+| Mini SSD qualification/health (`SX-SSD-005/006`, `SX-INTEGRATE-003`) | [#18](https://github.com/Sonoran-Solutions/Super-X-Helper/issues/18) |
+| `SX-HARD-001/002` hardware regression + recovery | [#19](https://github.com/Sonoran-Solutions/Super-X-Helper/issues/19) |
+| `SX-HARD-003/004/005` privilege/package/compatibility | [#20](https://github.com/Sonoran-Solutions/Super-X-Helper/issues/20) |
+
+Legacy foundation issues [#1](https://github.com/Sonoran-Solutions/Super-X-Helper/issues/1), [#2](https://github.com/Sonoran-Solutions/Super-X-Helper/issues/2), and [#3](https://github.com/Sonoran-Solutions/Super-X-Helper/issues/3) predate the current roadmap refresh; their corresponding foundation work is now complete in the roadmap and can be reconciled/closed separately.
+
 ## Model guidance
 
 - Tier 1: scaffolding, UI implementation, tests, docs, mechanical integration.
