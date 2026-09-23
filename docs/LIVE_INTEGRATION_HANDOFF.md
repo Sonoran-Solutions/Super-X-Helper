@@ -4,6 +4,8 @@
 **Machine:** ONEXPLAYER Super X (board `onec1`, BIOS `V1.01`), Ubuntu 24.04.4 LTS / kernel `7.0.0-30-generic`.
 **Session privilege:** unprivileged user (`uid 1000`). `sudo` requires a password; no non-interactive root was available and approval prompts were disabled. This constrains the write-validation result below.
 
+> **2026-09-22 planning update:** the live evidence in this handoff remains authoritative for this host, but its sequencing is superseded by `ROADMAP.md`. Before implementing production fan/TDP machinery, audit Loadout's current safety/ownership patterns. Frost Bay also no longer needs basic protocol discovery from scratch; public FFE0/FFE1 work should be reproduced locally through BlueZ.
+
 This pass completed ordinary Linux integration review + UI/service corrections and refreshed the live read-only baseline. It did **not** begin Frost Bay protocol work or Mini SSD stress/root-cause experiments.
 
 ---
@@ -105,9 +107,10 @@ The UI remains unprivileged and imports no raw hardware backends. No system-wide
 
 ## Recommended next task
 
-Run the same repo under a **root session (sudo)** on this Super X, in this order:
+Current sequencing after the 2026-09-22 upstream refresh:
 
-1. Confirm/install a kernel whose `oxpec` includes the Super X quirk (commit `0b6573e`), then `modprobe oxpec` and inventory the `oxp_ec` hwmon (`name`, `fan1_input`, `pwm1`, `pwm1_enable`, `tt_toggle`, `oxp-charge-control`).
-2. Perform single-step reversible write validation: **EPP → CPU boost → brightness**, each with before/read-back/restore/verify, before any fan write.
-3. Fan write only after step 1 confirms `oxp_ec` semantics; never test zero duty, never disable thermal protection, never pair with increased TDP.
-4. Keep Frost Bay `RESEARCH_PENDING` and Mini SSD `NOT_QUALIFIED`; do not begin those research tracks until the pre-Astra daily-driver gate passes.
+1. Audit Loadout's fan/TDP implementation and extract only the generic safety/ownership patterns that fit Super X Helper's service contract.
+2. Under a **root session (sudo)**, confirm/install a kernel whose `oxpec` includes the Super X quirk (commit `0b6573e`), then `modprobe oxpec` and inventory the `oxp_ec` hwmon (`name`, `fan1_input`, `pwm1`, `pwm1_enable`, `tt_toggle`, `oxp-charge-control`).
+3. Perform single-step reversible write validation: **EPP → CPU boost → brightness**, each with before/read-back/restore/verify, before any fan write.
+4. Fan write only after step 2 confirms `oxp_ec` semantics and a tested path back to firmware/EC ownership; never test zero duty, disable thermal protection, or pair first-time fan validation with increased TDP.
+5. Keep Frost Bay locally `RESEARCH_PENDING`, but when that track begins reproduce the published FFE0/FFE1 BlueZ path rather than repeating protocol archaeology. Mini SSD remains `NOT_QUALIFIED` pending its separate fault-isolation track.

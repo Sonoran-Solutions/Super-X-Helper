@@ -1,341 +1,295 @@
 # Super X Helper — Roadmap and Task List
 
-The roadmap is **integration-first, research-when-necessary**. The immediate product target is a comfortable Ubuntu daily driver with one Linux-native control center for ordinary Super X functions. Frost Bay protocol work and Mini SSD root-cause work remain separate research tracks and must not block the normal application.
+**Last research refresh:** 2026-09-22
+
+The roadmap is integration-first and reuse-first. Super X Helper remains an Ubuntu-native GTK daily-driver application; it should not duplicate mature open-source hardware-control work merely because that work lives in a different UI or distro ecosystem.
 
 ## Current strategy
 
-```text
-trustworthy hardware baseline
-        ↓
-Phase-0 Tier-2 hardening                 ← COMPLETE IN CODE
-        ↓
-Linux OneXConsole-style daily-driver UI ← NEXT
-        ↓
-PRE-ASTRA CHECKPOINT
-        ↓
-Frost Bay deep research + Mini SSD fault isolation
-        ↓
-integrate confirmed discoveries
-```
+The current state is:
 
-Pre-research product states are intentional:
+    trustworthy hardware/capability foundation        COMPLETE
+                     ↓
+    GTK4/libadwaita read-only application shell       COMPLETE
+                     ↓
+    live read-only Super X integration pass           COMPLETE
+                     ↓
+    upstream reuse audit + root write validation      NEXT
+                     ↓
+    PRE-ASTRA daily-driver checkpoint
+                     ↓
+    Frost Bay local validation/adaptation
+    Mini SSD fault isolation
+                     ↓
+    production integration and packaging
 
-- **Frost Bay:** `RESEARCH_PENDING` until protocol/health/control semantics are proven.
-- **Mini SSD reliability:** `NOT_QUALIFIED` until the fault-isolation and reliability-qualification tracks pass.
+Two discoveries materially change the old plan:
+
+1. **Loadout is now a serious reference implementation for handheld fan/TDP/battery/RGB control.** Before implementing production fan curves, persistence, locking, hwmon scanning, watchdogs, or TDP plumbing from scratch, audit Loadout and deliberately reuse/adapt the parts that fit our capability/service contract.
+2. **Frost Bay is no longer an undocumented-protocol problem.** A public verified protocol reference and two HHD implementations now exist. Our task is to reproduce that evidence on the Super X, validate BlueZ transport reliability, and adapt it safely—not repeat protocol archaeology from zero.
+
+Mini SSD disappearance/reliability remains unresolved and is still the primary premium-model research candidate.
+
+## Evidence state
+
+- GTK shell/read-only pages exist.
+- Fresh live read-only baseline was captured on 2026-09-07; suite was 45 passing tests at that handoff.
+- Installed Ubuntu kernel 7.0.0-30-generic contains oxpec but lacks the Super X DMI quirk; no live oxp_ec hwmon was available.
+- Upstream Linux added a Super X oxpec mapping after that kernel. A kernel/backport containing the quirk must be validated locally before fan writes.
+- Loadout has generic hwmon fan control, mode persistence, operation serialization, bounded writes, safety-floor/watchdog logic, and OneXPlayer capability detection. Super X is not on Loadout's published tested-device list.
+- Public Frost Bay work documents the FFE0/FFE1 control path, 64-byte state, BlueZ D-Bus access, telemetry/control semantics, and chunked writes. Local Super X transport/health behavior is not yet validated.
+- No credible public root-cause or firmware fix has been established for the BIWIN Mini SSD disappearance problem.
+
+See docs/LIVE_INTEGRATION_HANDOFF.md, docs/UPSTREAM_OWNERSHIP.md, docs/FROST_BAY.md, and docs/MINI_SSD.md.
+
+## GitHub issue map
+
+Use [#21 — Roadmap tracker](https://github.com/Sonoran-Solutions/Super-X-Helper/issues/21) as the GitHub-level progress view.
+
+| Roadmap area | Issue |
+|---|---|
+| `SX-UPSTREAM-001` Loadout audit | [#7](https://github.com/Sonoran-Solutions/Super-X-Helper/issues/7) |
+| `SX-CORE-002` oxpec/oxp_ec live validation | [#8](https://github.com/Sonoran-Solutions/Super-X-Helper/issues/8) |
+| `SX-CORE-003` ordinary write qualification | [#9](https://github.com/Sonoran-Solutions/Super-X-Helper/issues/9) |
+| `SX-CORE-004` production TDP backend | [#10](https://github.com/Sonoran-Solutions/Super-X-Helper/issues/10) |
+| `SX-CORE-005` D-Bus/polkit production boundary | [#11](https://github.com/Sonoran-Solutions/Super-X-Helper/issues/11) |
+| `SX-UI-003/005/006` Performance/Display/Power activation | [#12](https://github.com/Sonoran-Solutions/Super-X-Helper/issues/12) |
+| `SX-UI-004` internal fan controls/curves | [#13](https://github.com/Sonoran-Solutions/Super-X-Helper/issues/13) |
+| `SX-UI-007/008` controller/gyro/RGB integration audit | [#14](https://github.com/Sonoran-Solutions/Super-X-Helper/issues/14) |
+| `SX-UI-009` transactional profiles | [#15](https://github.com/Sonoran-Solutions/Super-X-Helper/issues/15) |
+| `SX-UI-010` quick access | [#16](https://github.com/Sonoran-Solutions/Super-X-Helper/issues/16) |
+| Frost Bay validation (`SX-FB-002..006`) | [#4](https://github.com/Sonoran-Solutions/Super-X-Helper/issues/4) |
+| Frost Bay production + liquid safety (`SX-FB-007`, `SX-INTEGRATE-001/002`) | [#17](https://github.com/Sonoran-Solutions/Super-X-Helper/issues/17) |
+| Mini SSD root cause (`SX-SSD-001..004`) | [#5](https://github.com/Sonoran-Solutions/Super-X-Helper/issues/5) |
+| Mini SSD qualification/health (`SX-SSD-005/006`, `SX-INTEGRATE-003`) | [#18](https://github.com/Sonoran-Solutions/Super-X-Helper/issues/18) |
+| `SX-HARD-001/002` hardware regression + recovery | [#19](https://github.com/Sonoran-Solutions/Super-X-Helper/issues/19) |
+| `SX-HARD-003/004/005` privilege/package/compatibility | [#20](https://github.com/Sonoran-Solutions/Super-X-Helper/issues/20) |
+
+Legacy foundation issues [#1](https://github.com/Sonoran-Solutions/Super-X-Helper/issues/1), [#2](https://github.com/Sonoran-Solutions/Super-X-Helper/issues/2), and [#3](https://github.com/Sonoran-Solutions/Super-X-Helper/issues/3) predate the current roadmap refresh; their corresponding foundation work is now complete in the roadmap and can be reconciled/closed separately.
 
 ## Model guidance
 
-- **Tier 1 — Gemini 3.8 Flash / DeepSeek V4 Flash:** scaffolding, UI implementation, tests, docs, mechanical integration.
-- **Tier 2 — GPT-5.6 Terra Medium/High:** serious engineering, backend/system integration, correctness review, live hardware validation.
-- **Tier 3 — DeepSeek V4 Pro High:** hard debugging, difficult architecture, static reverse engineering.
-- **Tier 4 — GPT-6 Astra Medium/High:** undocumented protocols, cross-layer hardware fault isolation, autonomous hypothesis → experiment loops.
+- Tier 1: scaffolding, UI implementation, tests, docs, mechanical integration.
+- Tier 2: Linux/backend integration, correctness review, live write validation, upstream adaptation.
+- Tier 3: difficult debugging or targeted static/reverse engineering after maintained upstream work is exhausted.
+- Tier 4: unresolved cross-layer hardware research.
 
-**Core rule:** Astra should usually inherit evidence produced by cheaper models rather than spending premium budget collecting the baseline.
+**Core rule:** premium research should inherit the public and local evidence packet. Do not spend Tier-4 budget re-deriving an upstream implementation that can be audited first.
 
 ---
 
 # Phase 0 — Trustworthy foundation
 
-## SX-001 · Capture immutable hardware/software inventory — P0 / RESEARCH
+## SX-001 · Capture immutable hardware/software inventory — COMPLETE
 
-**Status:** substantially complete from the original Gemini pass.
+Baseline and refreshed live snapshot exist.
 
-Captured baseline includes Super X identity/revision, BIOS, Ubuntu/kernel, APU/GPU, display, battery, Bluetooth adapter, internal NVMe, Mini SSD PCIe/NVMe identity and `oxpec` module presence.
+## SX-002 · Inventory existing Linux controls — BASELINE COMPLETE
 
-Remaining identity work belongs to later passive Frost Bay discovery, not to the normal UI milestone.
+The inventory must now include Loadout as a reference implementation and the public Frost Bay/HHD work. Discovery still does not authorize writes.
 
-## SX-002 · Inventory existing Linux controls — P0 / RESEARCH
+## SX-003 · Read-only diagnostic collector — COMPLETE IN CODE
 
-**Status:** baseline complete; local write validation remains intentionally separate.
+Collector covers DMI/kernel/module state, hwmon/sysfs telemetry, PCIe/NVMe discovery, Mini SSD presence classification, SMART/error fields, filtered kernel messages, passive BlueZ metadata, and identifier redaction.
 
-Capability state vocabulary:
+## SX-004 · Tier-2 audit/hardening pass — COMPLETE
 
-- `CONFIRMED_LOCAL`
-- `SUPPORTED_UNVERIFIED`
-- `READ_ONLY`
-- `RESEARCH_PENDING`
-- `UNAVAILABLE`
-- `ERROR`
-
-A discovered writable file is **not** equivalent to a production-qualified write capability.
-
-## SX-003 · Finish read-only diagnostic collector — P0
-
-**Status:** Tier-2 code hardening complete; re-run on the Super X after pulling this change to refresh the live snapshot.
-
-Collector now covers:
-
-- DMI/kernel/module state;
-- hwmon/sysfs telemetry;
-- stable PCIe/NVMe controller + namespace discovery;
-- Mini SSD `ABSENT` / `PCIE_ONLY` / `NVME_PRESENT` presence classification;
-- SMART/error fields via read-only `nvme-cli` where available;
-- filtered relevant kernel messages;
-- passive cached BlueZ target-like device/service inventory without starting a scan;
-- default redaction of SSD serials/Bluetooth addresses;
-- explicit identifier opt-in only when needed locally.
-
-The collector must never label the Mini SSD `HEALTHY` from enumeration/SMART alone.
-
-## SX-004 · Tier-2 audit/hardening pass — P0
-
-**Status: COMPLETE (2026-09-06).**
-
-Completed:
-
-- [x] corrected optimistic verification assumptions;
-- [x] fixed NVMe namespace discovery;
-- [x] made Mini SSD presence classification require the correct layer evidence;
-- [x] added default identifier redaction;
-- [x] added read-only SMART/kernel telemetry paths;
-- [x] separated discovery from write authorization;
-- [x] made all writes fail closed by default;
-- [x] made requested-vs-observed verification real;
-- [x] stopped fan duty writes when manual-mode transition fails;
-- [x] removed automatic-rollback claims until that behavior exists;
-- [x] added typed capability/safety contract;
-- [x] added Frost Bay `RESEARCH_PENDING` and Mini SSD `NOT_QUALIFIED` states;
-- [x] expanded local unit suite to 22 passing tests.
-
-See `docs/PHASE0_HANDOFF.md`.
-
-### Phase-0 exit status
-
-**Code gate passed.** Before enabling any real writes, re-run diagnostics and perform explicit live validation on the actual Super X.
+See docs/PHASE0_HANDOFF.md.
 
 ---
 
-# Phase 1 — Pre-Astra daily-driver control center
+# Phase 1 — Daily-driver control center
 
-See:
+## SX-CORE-001 · Application architecture — COMPLETE
 
-- `docs/PRE_ASTRA_CHECKPOINT.md`
-- `docs/UI_CONTRACT.md`
-- `docs/adr/0001-python-gtk-dbus-architecture.md`
+Accepted architecture:
 
-## SX-CORE-001 · Lock pre-Astra application architecture — P0
+    GTK4/libadwaita UI
+            ↓ ServiceClient
+    system D-Bus + polkit
+            ↓
+    Python superx-helperd service facade
+            ↓
+    validated platform / storage / Frost Bay backends
 
-**Status: COMPLETE.**
+The capability contract remains authoritative. Upstream reuse must fit this contract rather than bypass it.
 
-Decision:
+## SX-UI-001 · GTK shell + capability-driven read-only pages — COMPLETE
 
-```text
-GTK4/libadwaita UI (PyGObject, unprivileged)
-        ↓ ServiceClient
-system D-Bus + polkit
-        ↓
-Python superx-helperd service facade
-        ↓
-platform / storage / future Frost Bay backends
-```
+The shell, navigation, Dashboard, and read-only page skeletons are already implemented. Do not assign another agent to rebuild them.
 
-Additional decisions:
+## SX-LIVE-001 · First live-machine integration pass — COMPLETE
 
-- keep the existing Python core for v0.1;
-- no Rust rewrite without measured need;
-- versioned capability records are the UI source of truth;
-- daemon owns hardware polling and privileged writes;
-- user profiles/settings use versioned high-level JSON under XDG config;
-- target Ubuntu `.deb` packaging first;
-- quick access is a compact second GTK window, not a new input driver.
+Fresh baseline captured and UI/service boundary corrected. See docs/LIVE_INTEGRATION_HANDOFF.md.
 
-## SX-CORE-002 · Harden platform service/backend — P0
+## SX-UPSTREAM-001 · Audit Loadout before production fan/TDP work — P0 / NEXT
 
-**Status:** skeleton ready; live validation work remains.
+Review [srsholmes/loadout](https://github.com/srsholmes/loadout), especially:
 
-Next backend work:
+- plugins/fan-control/backend.ts
+- plugins/fan-control/safety-floor.ts
+- plugins/fan-control/lib/global-mode.ts
+- fan-control tests around stale ticks, ownership restoration, watchdog behavior, write timeouts, and concurrency
+- plugins/tdp-control/
+- OneXPlayer capability detection and battery/RGB plugins where relevant
 
-- validate live `oxpec` fan telemetry/attributes after module load;
-- validate CPU boost/EPP write behavior before authorizing either;
-- validate brightness write behavior in the active Ubuntu session;
-- select and validate a package/APU power-target mechanism and range;
-- define actual automatic fan recovery/rollback before enabling custom curves;
-- keep charge-limit/bypass controls unavailable until a real interface is proven.
+Answer explicitly:
 
-No frontend code may supply arbitrary sysfs paths or shell commands.
+- Which algorithms/design patterns should be adapted?
+- Which assumptions are Gaming-Mode/SteamOS-specific and should not be imported?
+- Which parts require attribution/license handling?
+- Which parts are safe to reproduce as design patterns versus direct code reuse?
+- Which Super X behavior still needs local validation?
 
-## SX-CORE-003 · Stable service/CLI status surface — P1
+**Do not implement a second fan-curve engine before this audit.**
 
-Use the typed `CapabilitySnapshot` / `CapabilityRecord` contract as the source of truth.
+## SX-CORE-002 · Validate the Super X oxpec/oxp_ec path under root — P0
 
-Target operations:
+1. Boot a kernel or backport containing the Super X oxpec quirk.
+2. Confirm oxp_ec hwmon identity and fan1_input / pwm1 / pwm1_enable behavior.
+3. Record automatic/manual semantics from the live device.
+4. Validate recovery back to firmware/EC ownership.
+5. Only then authorize fan writes through the service contract.
 
-```text
-GetSnapshot()
-SetCapability(capability_id, value)     # only when can_write=true
-ApplyProfile(profile)                   # later
-ExportDiagnostics(options)              # later
-```
+Loadout's fan backend is a reference for failure handling, not proof that this Super X path works unchanged.
 
-D-Bus adapter and CLI may present the same service semantics.
+## SX-CORE-003 · Validate ordinary root-owned writes — P0
 
-## SX-UI-001 · GTK application shell + capability-driven UI — P0
+Perform one reversible capability at a time with before/read-back/restore evidence:
 
-**NEXT RECOMMENDED TASK.**
+1. EPP
+2. CPU boost
+3. brightness
+4. internal fan after SX-CORE-002
 
-Build the GTK4/libadwaita shell against:
+No power increase should be paired with first-time fan validation.
 
-- `ServiceClient.get_snapshot()`;
-- `CapabilitySnapshot`;
-- `CapabilityRecord`;
-- `ui_manifest.PAGES`.
+## SX-CORE-004 · Select production APU/TDP mechanism — P1
 
-Do not import hardware backends from UI code.
+Audit Loadout's TDP strategy and current Linux/HHD options before selecting a backend. Preserve Super X Helper's own capability and safety policy. Do not couple Frost Bay detection directly into a legacy TDP backend.
 
-Every capability renders one of:
+## SX-CORE-005 · D-Bus/polkit production boundary — P1
 
-```text
-CONFIRMED_LOCAL
-SUPPORTED_UNVERIFIED
-READ_ONLY
-RESEARCH_PENDING
-UNAVAILABLE
-ERROR
-```
+Install only after at least one write capability has passed local validation.
 
-### Tier-1 scope for first UI pass
+## SX-UI-002 · Dashboard polish — P1
 
-Build all navigation/page shells and make them render read-only/disabled capability states correctly. Do **not** activate hardware writes in this task.
+Current read-only Dashboard exists. Continue from it; do not rebuild the shell.
 
-## SX-UI-002 · Dashboard — P1
+## SX-UI-003 · Performance page writes — P1
 
-Show:
+Activate only production-qualified EPP/boost/TDP capabilities.
 
-- active profile placeholder/state;
-- CPU/GPU temperature and useful power telemetry;
-- internal fan state;
-- battery;
-- display mode;
-- Frost Bay `RESEARCH_PENDING` card;
-- Mini SSD presence + `NOT_QUALIFIED` warning;
-- backend warnings/errors.
+## SX-UI-004 · Cooling page writes — P1
 
-## SX-UI-003 · Performance page — P1
+Use locally validated oxp_ec behavior and audited safety/recovery patterns. Custom curves require tested ownership restoration, bounded writes, stale-loop protection, and a thermal failsafe.
 
-Render:
+## SX-UI-005 · Display writes — P1
 
-- CPU boost;
-- EPP/performance preference;
-- power-target status;
-- observed power/thermal state;
-- profile selection.
+Prefer compositor/session-owned interfaces where practical. Validate brightness requested-vs-observed behavior before enabling it.
 
-Unverified writes stay visibly disabled.
+## SX-UI-006 · Power/Battery — P1
 
-Reserve `Liquid Performance` as unavailable until Frost Bay research passes.
+Telemetry exists. Charge limit/bypass remains unavailable until a local interface is proven. Audit upstream OneXPlayer implementations before adding custom EC behavior.
 
-## SX-UI-004 · Cooling page — P1
+## SX-UI-007 · Controller/vibration/gyro — P2
 
-Before fan writes are validated, render live/read-only status and the reason controls are disabled.
+Prefer HHD/InputPlumber/Steam. Do not build another controller stack.
 
-After validation:
+## SX-UI-008 · RGB — P2
 
-- automatic/manual mode;
-- duty/RPM;
-- safe presets;
-- custom curve only with tested recovery/rollback.
-
-Frost Bay remains a separate `RESEARCH_PENDING` section pre-Astra.
-
-## SX-UI-005 · Display page — P1
-
-Render brightness and connected display/mode telemetry first.
-
-Add mutation only after reliable compositor/session paths are validated for:
-
-- brightness;
-- resolution;
-- refresh rate;
-- VRR.
-
-## SX-UI-006 · Power / Battery page — P1
-
-Show battery state/capacity and performance context. Charge limit/bypass remain unavailable until proven.
-
-## SX-UI-007 · Existing controller / vibration / gyro integration — P2
-
-Prefer HHD/InputPlumber/Steam integration. Do not create a second controller stack.
-
-## SX-UI-008 · RGB integration — P2
-
-Search maintained Linux support first. If proprietary USB/HID archaeology is required, send it to Tier 3 before considering Tier 4. RGB does not block the pre-Astra gate.
+Audit maintained Loadout/HHD/OpenRGB paths before proprietary reverse engineering.
 
 ## SX-UI-009 · Declarative profiles — P1
 
-Profiles contain high-level policy only. Target names:
+Profiles remain high-level policy. Transactional apply/rollback is required before multi-setting writes are production-ready.
 
-- Quiet;
-- Balanced;
-- Performance;
-- Custom;
-- Liquid Performance (defined but unavailable pre-Frost-Bay).
+## SX-UI-010 · Quick-access panel/hotkey — P1
 
-Transactional apply/rollback is required before multi-setting writes are considered production-ready.
+Compact second GTK window using the same ServiceClient; reuse maintained input ownership where possible.
 
-## SX-UI-010 · Quick-access panel / hotkey — P1
+### PRE-ASTRA gate
 
-Build a compact second GTK window using the same `ServiceClient` and capability contract.
-
-Expose high-frequency controls/status. Prefer existing input/hotkey integration; do not write a new driver just to open the panel.
-
-## SX-UI-011 · Game-aware profile association — P2
-
-Optional after profiles work. Associate process/game identity with user-selected profiles without becoming another launcher.
-
-## PRE-ASTRA GATE
-
-- [x] trustworthy diagnostics/capability code foundation;
-- [ ] refreshed live diagnostic snapshot from the hardened collector;
-- [ ] polished GTK application shell/dashboard;
-- [ ] CPU/performance write controls locally validated and available from UI where safe;
-- [ ] internal fan control locally validated and available from UI;
-- [ ] display controls available where Linux/session support is proven;
-- [ ] battery telemetry and supported controls;
-- [ ] declarative profiles;
-- [ ] quick-access workflow;
-- [ ] Mini SSD basic telemetry with `NOT_QUALIFIED` warning;
-- [ ] Frost Bay visible as `RESEARCH_PENDING` with no guessed protocol path;
-- [ ] unresolved ordinary features classified/documented.
+- [x] trustworthy diagnostic/capability foundation
+- [x] refreshed live diagnostic snapshot
+- [x] GTK application shell and read-only pages
+- [ ] Loadout fan/TDP upstream audit completed
+- [ ] CPU/performance writes locally validated
+- [ ] internal fan path locally validated with ownership recovery
+- [ ] display writes enabled only where proven
+- [ ] battery telemetry and any supported controls
+- [ ] declarative profiles
+- [ ] quick-access workflow
+- [x] Mini SSD presence telemetry with NOT_QUALIFIED warning
+- [x] Frost Bay represented as RESEARCH_PENDING without pretending local validation
+- [ ] unresolved ordinary features classified/documented
 
 ---
 
-# Phase 2 — Frost Bay deep research
+# Phase 2 — Frost Bay validation and integration
 
-Issue #4 remains the primary research mission.
+The old from-scratch reverse-engineering plan is superseded.
 
-## SX-FB-001 · Passive Frost Bay discovery — P0 / RESEARCH
+Public reference:
+- [tbitu/onexplayer-frostbay-bluetooth](https://github.com/tbitu/onexplayer-frostbay-bluetooth)
+- [hhd-dev/hhd PR #321](https://github.com/hhd-dev/hhd/pull/321)
+- [hhd-dev/hhd PR #336](https://github.com/hhd-dev/hhd/pull/336)
 
-Use Gemini Flash first for passive collection of device identity, advertisements, GATT map, reads and notifications. No unknown writes.
+## SX-FB-001 · Public protocol intake — COMPLETE
 
-## SX-FB-002 · Static OneXConsole archaeology — P0 / RESEARCH
+Public work already establishes the core FFE0/FFE1 protocol model and Linux BlueZ execution path. Treat it as high-confidence external evidence, not local confirmation.
 
-Use DeepSeek V4 Pro High first for vendor binary/resource inspection: names, UUIDs, packet structures, telemetry labels, command IDs, reconnect behavior, range/safety checks.
+## SX-FB-002 · Reproduce BlueZ transport on the Super X — P0 / NEXT FROST BAY TASK
 
-## SX-FB-003 · Astra protocol mission — P0 / RESEARCH
+On the actual Super X:
 
-Give Astra the curated GATT + static-analysis evidence packet. Resolve only remaining semantics with the smallest safe experiments.
+- identify the local Frost Bay device;
+- confirm Connected + ServicesResolved;
+- confirm FFE0/FFE1 visibility;
+- read state through BlueZ D-Bus;
+- determine whether the built-in Bluetooth controller exposes the full GATT tree reliably;
+- record any HID side effects.
 
-## SX-FB-004 · Linux read-only client — P1
+If the built-in adapter fails but an external adapter works, document that as a transport limitation rather than inventing a protocol problem.
 
-Terra implements confirmed discovery/connection/telemetry semantics against the already-existing Frost Bay capability contract.
+## SX-FB-003 · Validate public field semantics locally — P0
 
-## SX-FB-005 · Minimum safe control POC — P1
+Independently confirm the small set of fields required for UI/health: requested mode, fan/pump command, runtime activity, water temperatures, flow telemetry, and freshness.
 
-First write must be understood, benign, reversible, identity-checked and rollback-ready.
+Do not re-run static OneXConsole archaeology unless local evidence contradicts the public protocol reference.
 
-## SX-FB-006 · State machine / fault handling — P1
+## SX-FB-004 · Read-only Frost Bay backend — P1
 
-Disconnected, stale, unknown or faulted never equals healthy.
+Implement through the existing capability/service contract. BlueZ owns transport; the backend owns protocol parsing and freshness state.
+
+## SX-FB-005 · Minimum safe control reproduction — P1
+
+Reproduce one published benign/reversible write with before/read-back/restore evidence. No blind writes and no maximum-power pairing.
+
+## SX-FB-006 · State machine / disconnect handling — P1
+
+Disconnected, stale, unknown, partial-GATT, or faulted never equals healthy.
 
 ## SX-FB-007 · Liquid-power safety gate — P1
 
-Liquid-only profiles require fresh positive cooler health and a verified fallback.
+Liquid-only power policy must consume validated cooler health from the Frost Bay backend. Keep dock detection separate from the selected TDP implementation.
+
+### Superseded Frost Bay work — DO NOT REPEAT BY DEFAULT
+
+- broad passive discovery as if UUIDs were unknown;
+- full vendor protocol archaeology from scratch;
+- Astra mission to discover basic FFE1 semantics;
+- speculative BLE fuzzing or unknown characteristic writes.
+
+Escalate only when the local Super X materially disagrees with the published evidence.
 
 ---
 
 # Phase 3 — Mini SSD deep research
 
-Issue #5 remains the primary research mission.
+Issue #5 remains the primary unresolved hardware research mission.
+
+No credible public breakthrough as of 2026-09-22 changes this plan.
 
 ## SX-SSD-001 · Refresh known-good baseline — P0
 
@@ -343,7 +297,7 @@ Use the hardened collector to capture current PCIe/NVMe/namespace/link/temp/SMAR
 
 ## SX-SSD-002 · Reproduce disappearance systematically — P0 / RESEARCH
 
-Astra High runs the bounded experimental matrix after Gemini/cheaper models reduce logs where useful.
+Run the bounded experimental matrix after cheaper models reduce logs where useful.
 
 ## SX-SSD-003 · Determine failure layer — P0 / RESEARCH
 
@@ -355,47 +309,47 @@ Change one evidence-backed variable at a time and require repeatability.
 
 ## SX-SSD-005 · Reliability qualification — P1
 
-Only after root cause/mitigation work run repeated boot/suspend/idle/read/write/checksum/thermal qualification.
+Only after root-cause/mitigation work, run repeated boot/suspend/idle/read/write/checksum/thermal qualification.
 
 ## SX-SSD-006 · Production health monitor — P2
 
-Only then replace `NOT_QUALIFIED` with evidence-backed qualified/degraded/fault states.
+Only then replace NOT_QUALIFIED with evidence-backed qualified/degraded/fault states.
 
 ---
 
-# Phase 4 — Integrate research discoveries
+# Phase 4 — Integrate validated discoveries
 
 ## SX-INTEGRATE-001 · Frost Bay production backend — P1
 
-Activate the existing cooling UI only with confirmed protocol semantics.
+Activate the existing cooling UI only after local transport, field, freshness, and recovery validation.
 
 ## SX-INTEGRATE-002 · Liquid profile activation — P1
 
-Enable only after cooler-health/fallback behavior is verified.
+Enable only after cooler-health/fallback behavior and the independent TDP path are verified.
 
 ## SX-INTEGRATE-003 · Mini SSD qualified health states — P1
 
-If the final answer is hardware/firmware unreliability, the UI must say that rather than manufacture a software success state.
+If the final answer is hardware/firmware unreliability, say so rather than manufacturing a software success state.
 
 ---
 
 # Phase 5 — Hardening and packaging
 
-- **SX-HARD-001:** opt-in hardware regression suite.
-- **SX-HARD-002:** safe startup/recovery.
-- **SX-HARD-003:** D-Bus/polkit privilege review.
-- **SX-HARD-004:** Ubuntu `.deb` packaging.
-- **SX-HARD-005:** compatibility/diagnostic report.
-- **SX-HARD-006:** broader ONEXPLAYER evaluation only after Super X is solid.
+- SX-HARD-001: opt-in hardware regression suite
+- SX-HARD-002: safe startup/recovery
+- SX-HARD-003: D-Bus/polkit privilege review
+- SX-HARD-004: Ubuntu .deb packaging
+- SX-HARD-005: compatibility/diagnostic report
+- SX-HARD-006: broader ONEXPLAYER evaluation only after Super X is solid
 
 ---
 
 # Next model handoff
 
-**Recommended:** Gemini 3.8 Flash (or DeepSeek V4 Flash) for `SX-UI-001`.
+**Recommended next engineering task:** SX-UPSTREAM-001 followed by root live validation.
 
-Task boundary:
+The handoff should say:
 
-> Build the GTK4/libadwaita application shell, navigation, Dashboard, and read-only page skeletons using only `ServiceClient`, `CapabilitySnapshot`, `CapabilityRecord`, and `ui_manifest.PAGES`. Correctly render `SUPPORTED_UNVERIFIED`, `READ_ONLY`, `RESEARCH_PENDING`, `UNAVAILABLE`, warnings and `NOT_QUALIFIED`. Do not wire hardware writes, D-Bus privilege code, Frost Bay protocol work, or Mini SSD stress testing.
+> Audit Loadout's current fan-control and TDP implementations before adding production write logic to Super X Helper. Map reusable design patterns into our capability/service architecture, with special attention to generic hwmon discovery, pwm1_enable ownership, persisted global mode, serialized operations, stale curve ticks, bounded EC/sysfs writes, independent thermal watchdog behavior, and recovery to automatic control. Do not copy Steam/Gaming-Mode assumptions or enable writes. Produce a concrete adaptation plan, then validate the Super X oxpec/oxp_ec path under root on a kernel containing the Super X quirk.
 
-After that pass, return to Terra for review and live backend integration.
+For Frost Bay, the next task is no longer protocol discovery. It is local BlueZ reproduction of the published FFE0/FFE1 path.

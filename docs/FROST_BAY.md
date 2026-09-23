@@ -1,193 +1,175 @@
-# Frost Bay — Linux Protocol Research
+# Frost Bay — Public Protocol Intake and Local Super X Validation
+
+**Last research refresh:** 2026-09-22
 
 ## Objective
 
-Implement safe Linux discovery, telemetry, and control for the ONEXPLAYER Frost Bay external liquid cooler used with the liquid-cooled Super X.
+Implement safe Linux discovery, telemetry, control, freshness/health handling, and eventual liquid-power gating for the ONEXPLAYER Frost Bay cooler attached to the Super X.
 
-The research target is the **Bluetooth software-control path**. ONEXPLAYER documents that the cooling tubes themselves do not transmit control data and that OneXConsole communicates with Frost Bay over Bluetooth.
+The protocol is **no longer considered undocumented**. Public Linux work now provides a concrete reference implementation and two active HHD integrations. Super X Helper's remaining job is independent local reproduction and safe integration into our capability contract.
 
 ## Current status
 
-**Research not started on local hardware.**
+**External protocol evidence: high confidence.**
+**Local Super X/Frost Bay validation: not yet performed.**
+**Production capability state: RESEARCH_PENDING / writes blocked.**
 
-### Confirmed from public documentation
+Primary sources:
 
-- Frost Bay software control is Bluetooth-based.
-- Bluetooth must remain enabled for normal OneXConsole communication.
-- No USB data/driver path is required through the coolant connection.
-- The liquid-cooled Super X supports a higher advertised platform power envelope when used with Frost Bay than the standard configuration.
+- [tbitu/onexplayer-frostbay-bluetooth](https://github.com/tbitu/onexplayer-frostbay-bluetooth)
+- [hhd-dev/hhd PR #321](https://github.com/hhd-dev/hhd/pull/321)
+- [hhd-dev/hhd PR #336](https://github.com/hhd-dev/hhd/pull/336)
 
-### Community observations worth verifying locally
+Do not confuse a public verified implementation with local authorization. Until the development unit reproduces the required identity, transport, telemetry, freshness, and recovery behavior, Super X Helper must keep Frost Bay disabled.
 
-Community reports mention Bluetooth identities resembling `CoolingSystem_ONCE1`, Frost Bay connection state in OneXConsole, and cooler telemetry/control behavior. Treat all such details as **HYPOTHESIS/LIKELY** until reproduced on the actual hardware.
+## Publicly established protocol model
 
-## Research questions
+The public reference describes Frost Bay as a normal BlueZ/GATT device once the OS has a valid session:
 
-### Identity/discovery
+- primary Frost Bay service: FFE0;
+- primary state/control characteristic: FFE1;
+- direct BlueZ D-Bus ReadValue/WriteValue works after Device1 reports Connected and ServicesResolved and the characteristic is present;
+- no proprietary pre-read unlock handshake is required;
+- FFE1 reads as a 64-byte state value;
+- active mode families include OFF, Smart, and Fixed;
+- fan/pump control and water/flow/runtime telemetry are represented within that state;
+- writes use a known multi-chunk FFE1 transport rather than a raw 64-byte write.
 
-- What exact Bluetooth name does this Frost Bay advertise?
-- LE, Classic, or dual-mode?
-- Public or random address type?
-- Does OneXConsole rely on name, service UUID, manufacturer data, or another identity mechanism?
-- Does the device require pairing/bonding, or only a GATT connection?
+The exact byte-level reference remains upstream. Super X Helper should link to it and implement only the fields it needs, preserving unknown bytes rather than reinterpreting the entire state.
 
-### GATT map
+## Important runtime distinction
 
-For every service/characteristic, record:
+The public work distinguishes **requested/stored mode** from **actual runtime activity**. A non-off requested mode must not automatically be treated as proof the cooler is actively healthy.
 
-| Service UUID | Characteristic UUID | Properties | Observed role | Confidence |
-|---|---|---|---|---|
-| TBD | TBD | TBD | TBD | HYPOTHESIS |
+That maps cleanly to our safety rule:
 
-### Telemetry
+    requested mode != fresh positive cooler health
 
-Potential fields to investigate without assuming they exist:
+A future Liquid Performance profile must require recent validated telemetry and a defined fallback on disconnect/staleness/fault.
 
-- connection/health state;
-- coolant/ambient temperature;
-- pump speed or commanded level;
-- radiator fan speed or commanded level;
-- flow/flow-health indication;
-- fault/warning flags;
-- firmware/device version.
+## BlueZ transport risk
 
-### Controls
+Public testing on an OneXPlayer Apex found an important Linux-specific failure mode:
 
-Potential controls to investigate only after evidence identifies them:
+- BlueZ could claim the device was connected/services-resolved while the expected Frost Bay GATT subtree was incomplete on the built-in adapter;
+- an external adapter exposed the full GATT tree and stable FFE1 access;
+- Frost Bay's HID side effects could create bogus volume key events and required targeted host mitigation.
 
-- mode selection;
-- pump level;
-- radiator fan level;
-- automatic/manual behavior.
+This may or may not reproduce on the Super X. It is now the first local research question.
 
-Do not assume raw percentages or units until confirmed.
+## Local validation plan
 
-### System interaction
+### FB-VAL-001 — Identify the local device
 
-- Does Super X firmware independently detect physical coolant connection?
-- Does OneXConsole merely expose the 120 W profile, or does cooler telemetry participate in the decision?
-- What happens to platform power when Frost Bay disconnects while a high-power profile is active?
-- Is there any firmware-level safety fallback independent of the app?
+Record:
 
-## Phase A — Passive Linux discovery
+- advertised/local name;
+- address type with public-output redaction;
+- firmware/device identity where exposed;
+- BlueZ adapter used;
+- Connected / ServicesResolved state.
 
-Recommended initial commands/tools:
+Do not assume the Apex's exact identity or adapter behavior matches the Super X.
 
-```bash
-bluetoothctl show
-bluetoothctl devices
-bluetoothctl scan on
-```
+### FB-VAL-002 — Reproduce FFE0/FFE1 on the built-in adapter
 
-Then use an appropriate BlueZ/GATT browser to enumerate the target device without issuing writes.
+Using BlueZ D-Bus:
 
-Capture:
+1. connect through normal OS Bluetooth ownership;
+2. wait for Connected and ServicesResolved;
+3. confirm FFE0 in the device UUIDs;
+4. confirm a GattCharacteristic1 object for FFE1;
+5. read the state;
+6. verify freshness over repeated reads/notifications.
 
-- advertised name;
-- address type;
-- RSSI only if useful;
-- service UUIDs;
-- manufacturer/service data;
-- GATT services;
-- characteristics;
-- descriptors;
-- read/write/notify properties.
+If the GATT subtree is missing, treat this first as a transport/controller problem—not as evidence the protocol is wrong.
 
-### Experiment log
+### FB-VAL-003 — External-adapter fallback if required
 
-No local experiments recorded yet.
+If the built-in adapter is unreliable, reproduce the same sequence with a known-working external adapter and compare:
 
----
+- service tree;
+- characteristic visibility;
+- read stability;
+- reconnect behavior;
+- HID side effects.
 
-## Phase B — Read/notification observation
+Document the result as a supported/unsupported transport matrix.
 
-Subscribe only to characteristics advertised as readable/notifiable.
+### FB-VAL-004 — Confirm minimum telemetry semantics
 
-Record changes while performing **external, already-supported actions** that do not require unknown Linux writes, such as:
+Independently verify only the fields needed for safe UI/health:
 
-- Frost Bay powered off/on;
-- connecting/disconnecting coolant loop if safe and per manufacturer procedure;
-- known-good OneXConsole mode changes in a controlled Windows reference environment if available.
+- requested mode;
+- runtime activity;
+- water temperatures;
+- flow;
+- fan command/state;
+- pump command/state;
+- timestamp/freshness.
 
-Map changing fields before attempting Linux control.
+Use external already-supported actions or known-good behavior to correlate values. Do not broaden the task into rediscovering every byte.
 
----
+### FB-VAL-005 — Read-only backend
 
-## Phase C — Static OneXConsole inspection
+Implement BlueZ transport + protocol parsing behind the existing Frost Bay capability records.
 
-Inspect publicly distributed vendor software for protocol evidence without redistributing proprietary code.
+Required states include at least:
 
-Search for:
+- unavailable/not discovered;
+- connecting;
+- connected but services incomplete;
+- fresh telemetry;
+- stale telemetry;
+- fault/invalid frame;
+- disconnected.
 
-- `CoolingSystem` / Frost Bay names;
-- Bluetooth/GATT UUID strings;
-- characteristic names;
-- byte constants;
-- packet encoder/decoder functions;
-- telemetry labels;
-- command enums;
-- range checks;
-- reconnect and timeout logic;
-- power-profile gating logic.
+### FB-VAL-006 — First safe write reproduction
 
-Document symbols/strings/behavior rather than copying substantial proprietary code.
+Only after read behavior is locally stable:
 
----
+- start from a known-good current state;
+- reproduce one published benign/reversible command;
+- record before state;
+- apply the smallest change;
+- read back;
+- restore;
+- verify restoration.
 
-## Phase D — Controlled known-good traffic capture
+Do not pair first-time Frost Bay writes with increased APU/TDP.
 
-Only if prior phases do not sufficiently establish the protocol.
+### FB-VAL-007 — Production health contract
 
-Use Windows/OneXConsole as an oracle and change one safe setting at a time.
+Define the exact conditions that satisfy cooler health for liquid-only policy. At minimum, communication freshness and runtime telemetry must matter; stored/requested mode alone is insufficient.
 
-Example matrix:
+## Work explicitly superseded
 
-| Experiment | Before | After | BLE difference | Result |
-|---|---|---|---|---|
-| Mode change | TBD | TBD | TBD | — |
-| Safe fan step | TBD | TBD | TBD | — |
-| Safe pump step | TBD | TBD | TBD | — |
+The following old tasks are no longer default work:
 
-Avoid maximum/minimum extremes as first controls.
+- discovering FFE0/FFE1 from scratch;
+- generic vendor-binary archaeology to find basic Frost Bay commands;
+- an Astra mission whose goal is merely to decode the basic protocol;
+- blind characteristic probing/fuzzing;
+- assuming no public Linux implementation exists.
 
----
+Escalate to targeted reverse engineering only if local Super X evidence contradicts the public reference in a way the existing implementations do not explain.
 
-## Phase E — First Linux write
+## HHD integration notes
 
-Gate before any write:
+PR #321 is a Frost Bay plugin aimed at OneXPlayer Apex and Super-X/Super-V and documents Bluetooth-stack issues separately from the core protocol.
 
-- [ ] exact target device identity confirmed;
-- [ ] exact service/characteristic confirmed;
-- [ ] command semantics understood;
-- [ ] payload encoding understood;
-- [ ] safe range known;
-- [ ] expected effect known;
-- [ ] prior state recorded;
-- [ ] rollback/restoration action prepared;
-- [ ] user is physically present at the device.
+PR #336 implements a broader cooling-dock plugin with BLE synchronization, fan/RGB control, disconnect-aware UI, and tests. HHD review pushed power/TDP concerns toward separation from the dock implementation.
 
-The first command should be benign, reversible, and visibly/telemetrically verifiable.
+Super X Helper should take the same architectural lesson:
 
----
+    Frost Bay backend produces validated cooler state
+            ↓
+    profile/power policy consumes that state
 
-## Production protocol notes
-
-Once fields become confirmed, define them here before moving them into code.
-
-Example format:
-
-```text
-Characteristic: <UUID>
-Role: telemetry notifications
-Packet length: <n>
-Byte 0: <meaning>
-...
-Evidence: EXP-...
-Confidence: CONFIRMED
-```
+Do not bury dock detection inside a legacy TDP writer.
 
 ## Safety invariant
 
-A disconnected, stale, unknown, or faulted Frost Bay state is **not equivalent to healthy**.
+A disconnected, stale, partial-GATT, unknown, or faulted Frost Bay state is **not healthy**.
 
-Any future liquid-only performance policy must require a recent positively validated health state and must define a safe fallback on communication loss.
+Published upstream behavior is evidence. Local production authorization still requires reproduction on the development Super X.

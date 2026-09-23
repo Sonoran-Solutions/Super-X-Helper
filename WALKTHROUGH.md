@@ -5,6 +5,8 @@
 **Milestone:** Pre-Astra UI Shell & Read-Only Page Skeletons (`SX-UI-001` & `SX-UI-002`)  
 **Status:** Completed, Verified, and Tested (31/31 tests passing)
 
+> **Historical milestone note (2026-09-22):** this walkthrough records the UI state as implemented on 2026-09-06. Its Frost Bay copy reflects the local capability state at that time. Current planning recognizes a published FFE0/FFE1 protocol, while the app correctly remains `RESEARCH_PENDING` until that protocol is reproduced and health/transport behavior is validated on the local Super X. See `ROADMAP.md` and `docs/FROST_BAY.md`.
+
 ---
 
 ## 1. Summary of Accomplishments

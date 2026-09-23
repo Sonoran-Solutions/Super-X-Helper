@@ -2,7 +2,7 @@
 
 ## 1. Purpose
 
-Super X Helper is a Linux-native control/diagnostics layer for the ONEXPLAYER Super X. The pre-Astra milestone prioritizes a real daily-driver application around ordinary Linux-supported functionality while keeping Frost Bay and Mini SSD reliability as explicit later research backends.
+Super X Helper is a Linux-native control/diagnostics layer for the ONEXPLAYER Super X. The pre-Astra milestone prioritizes a real daily-driver application around ordinary Linux-supported functionality. Frost Bay is now a later **local validation/integration** backend because the basic protocol is published; Mini SSD reliability remains a separate unresolved research track.
 
 ## 2. Accepted architecture
 
@@ -34,6 +34,7 @@ ADR: [`docs/adr/0001-python-gtk-dbus-architecture.md`](docs/adr/0001-python-gtk-
 - Ubuntu `.deb` is the first packaging target.
 - Profiles/settings use versioned high-level JSON under the user's XDG config directory.
 - Quick access is another GTK window using the same client/contract.
+- Generic hardware-control machinery is reuse-first: audit maintained upstream implementations (especially Loadout for fan/TDP behavior and HHD for maintained device integrations) before adding a parallel subsystem.
 
 ## 3. Capability contract
 
@@ -127,7 +128,7 @@ This is a presence model, not a reliability verdict.
 
 ### Frost Bay
 
-Both Frost Bay telemetry and control are `RESEARCH_PENDING` and `BLOCKED` pre-Astra. No fake zero/disconnected telemetry is emitted as if protocol support existed.
+Both Frost Bay telemetry and control remain locally `RESEARCH_PENDING` and `BLOCKED` pre-Astra. Public work documents the basic FFE0/FFE1 protocol, but no local Super X/Frost Bay backend has passed transport/freshness/health validation. No fake zero/disconnected telemetry is emitted as if local support existed.
 
 ## 6. Diagnostics
 
@@ -252,4 +253,4 @@ Before deep research the application should already provide:
 - basic Mini SSD presence/link/temp information with `NOT_QUALIFIED` reliability;
 - Frost Bay placeholder as `RESEARCH_PENDING`.
 
-Frost Bay protocol support and Mini SSD reliability qualification are **not** blockers for building/using the majority of the application.
+Frost Bay local validation/integration and Mini SSD reliability qualification are **not** blockers for building/using the majority of the application.

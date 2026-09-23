@@ -4,61 +4,62 @@
 
 The practical goal is simple: make the Super X pleasant to daily-drive without reinstalling Windows or bouncing between terminal commands and unrelated utilities.
 
-> **Status: pre-alpha / pre-Astra daily-driver build.** Read-only discovery is being hardened first; real hardware writes remain disabled until individually validated on the development Super X.
+> **Status: pre-alpha.** The GTK4/libadwaita read-only application exists and has been exercised on the development Super X. Production hardware writes are still disabled until individually validated.
 
 ## Current project strategy
 
-The project has three workstreams, but they no longer block each other:
+The project now follows a **reuse-first** rule:
 
-1. **Daily-driver Linux control center** — build the OneXConsole-style UI around ordinary Linux-supported controls first.
-2. **Frost Bay** — later reverse-engineer the external cooler's Bluetooth protocol and activate its already-reserved UI/backend capability.
-3. **Mini SSD reliability** — expose safe telemetry now, but keep reliability `NOT_QUALIFIED` until the separate root-cause/qualification research passes.
+1. **Daily-driver Linux control center** — continue the existing Ubuntu-native GTK app and validate ordinary Linux-supported writes.
+2. **Upstream audit before new hardware-control code** — Loadout now overlaps heavily with fan curves, TDP, battery, RGB, persistence, concurrency, and safety handling. Audit/adapt proven design patterns before inventing another stack.
+3. **Frost Bay** — the public BLE protocol is already substantially documented and implemented by community HHD work. Our job is local Super X validation, BlueZ transport hardening, and safe adaptation into our capability contract.
+4. **Mini SSD reliability** — expose safe telemetry now, but keep reliability NOT_QUALIFIED until the separate root-cause/qualification research passes.
 
-```text
-trustworthy baseline
-   ↓
-capability/backend contract
-   ↓
-GTK daily-driver application
-   ↓
-PRE-ASTRA CHECKPOINT
-   ↓
-Frost Bay + Mini SSD deep research
-   ↓
-activate confirmed research backends
-```
+    trustworthy baseline
+       ↓
+    capability/backend contract
+       ↓
+    GTK daily-driver application              COMPLETE FOR READ-ONLY SHELL
+       ↓
+    upstream reuse audit + root write validation
+       ↓
+    PRE-ASTRA CHECKPOINT
+       ↓
+    Frost Bay local validation + Mini SSD research
+       ↓
+    production integration
+
+See [ROADMAP.md](ROADMAP.md).
 
 ## Current baseline
 
-The original local capture established:
+The local Super X baseline includes:
 
-- ONEXPLAYER SUPER X / board revision `onec1`;
-- BIOS `V1.01`;
-- Ubuntu 24.04.4 LTS / kernel 7.0.0-30-generic at capture time;
+- ONEXPLAYER SUPER X / board revision onec1;
+- BIOS V1.01;
+- Ubuntu 24.04.4 LTS / kernel 7.0.0-30-generic at the 2026-09-07 live pass;
 - AMD RYZEN AI MAX+ 395 / Radeon 8060S;
-- `amd-pstate-epp`, CPU boost and powercap telemetry;
-- 2880×1800 internal display with 120 Hz support reported in the capture;
+- amd-pstate-epp, CPU boost and power telemetry;
+- 2880×1800 internal display with 120 Hz support in the baseline;
 - amdgpu backlight and battery telemetry;
-- KIOXIA internal NVMe plus BIWIN Mini SSD at PCIe Gen4 x2 during the baseline;
-- MediaTek Bluetooth adapter on `hci0`;
-- `oxpec` module and Super X DMI support present, but `oxpec` was **not loaded during the captured baseline**.
+- KIOXIA internal NVMe plus BIWIN Mini SSD at PCIe Gen4 x2;
+- MediaTek Bluetooth adapter on hci0.
 
-That last distinction matters: kernel support is evidence, but it is not proof that fan writes have been safely exercised on this exact device.
+### Important oxpec correction
+
+The installed 7.0.0-30-generic oxpec module **does not contain the Super X DMI quirk** and did not expose a live oxp_ec hwmon on the development machine. Upstream added Super X support later. Internal fan writes therefore remain unvalidated until a kernel/backport containing that quirk is loaded and exercised under root.
+
+See [docs/LIVE_INTEGRATION_HANDOFF.md](docs/LIVE_INTEGRATION_HANDOFF.md).
 
 ## Architecture
 
-The pre-Astra architecture is now accepted:
-
-```text
-GTK4/libadwaita UI (unprivileged)
-            ↓ ServiceClient
-system D-Bus + polkit
-            ↓
-Python superx-helperd service facade
-            ↓
-  ┌─────────┼──────────┐
-platform  storage   Frost Bay (later)
-```
+    GTK4/libadwaita UI (unprivileged)
+                ↓ ServiceClient
+    system D-Bus + polkit
+                ↓
+    Python superx-helperd service facade
+                ↓
+      platform / storage / Frost Bay backends
 
 Key decisions:
 
@@ -67,11 +68,11 @@ Key decisions:
 - root-owned system D-Bus service for validated privileged writes;
 - no network listener;
 - no arbitrary sysfs paths/shell strings from UI input;
-- Ubuntu `.deb` packaging first;
+- Ubuntu .deb packaging first;
 - user profiles as versioned high-level JSON;
 - quick access as a compact second GTK window, not a new input driver.
 
-See [`docs/adr/0001-python-gtk-dbus-architecture.md`](docs/adr/0001-python-gtk-dbus-architecture.md).
+See [docs/adr/0001-python-gtk-dbus-architecture.md](docs/adr/0001-python-gtk-dbus-architecture.md).
 
 ## Capability-driven UI
 
@@ -79,82 +80,99 @@ The UI consumes a stable typed contract rather than hardware paths.
 
 Capability states:
 
-```text
-CONFIRMED_LOCAL
-SUPPORTED_UNVERIFIED
-READ_ONLY
-RESEARCH_PENDING
-UNAVAILABLE
-ERROR
-```
+- CONFIRMED_LOCAL
+- SUPPORTED_UNVERIFIED
+- READ_ONLY
+- RESEARCH_PENDING
+- UNAVAILABLE
+- ERROR
 
-A capability also reports read/write support, local validation, observed/desired value, allowed range/options, owner/backend, warnings, safety state and whether a write is actually authorized.
+A discovered writable node does not make can_write true.
 
-**Finding a writable sysfs node does not make `can_write` true.**
+See [docs/UI_CONTRACT.md](docs/UI_CONTRACT.md).
 
-See [`docs/UI_CONTRACT.md`](docs/UI_CONTRACT.md).
+## Upstream reuse policy
 
-### Frost Bay before research
+Before implementing production fan/TDP/RGB/battery behavior, review [docs/UPSTREAM_OWNERSHIP.md](docs/UPSTREAM_OWNERSHIP.md).
 
-```text
-Frost Bay
-RESEARCH_PENDING
-Linux protocol/health semantics not validated
-```
+In particular, [Loadout](https://github.com/srsholmes/loadout) now provides a useful reference for:
 
-### Mini SSD before research
+- generic hwmon fan discovery;
+- PWM/RPM-target control;
+- persisted fan modes/profiles;
+- operation serialization and stale-tick handling;
+- bounded writes to avoid wedged-EC lockups;
+- independent thermal safety watchdog behavior;
+- ownership restoration;
+- TDP control and OneXPlayer capability detection.
 
-```text
-Mini SSD
-NVME_PRESENT / PCIE_ONLY / ABSENT
-Reliability: NOT_QUALIFIED
-```
+That does **not** prove Super X compatibility. Loadout's published tested devices do not currently include the Super X, and our Ubuntu GTK architecture remains intentionally different.
 
-Enumeration or SMART success never silently promotes the drive to `HEALTHY`.
+## Frost Bay state
+
+Frost Bay is still RESEARCH_PENDING **locally**, but not because the protocol is unknown.
+
+Public work now documents the core FFE0/FFE1 state-and-control protocol and HHD has open Frost Bay/cooling-dock implementations. Super X Helper should reproduce that public evidence on the actual Super X and validate BlueZ reliability before enabling control.
+
+See [docs/FROST_BAY.md](docs/FROST_BAY.md).
+
+## Mini SSD state
+
+    Mini SSD
+    NVME_PRESENT / PCIE_ONLY / ABSENT
+    Reliability: NOT_QUALIFIED
+
+Enumeration or SMART success never silently promotes the drive to HEALTHY. No credible public root-cause/firmware breakthrough has changed that position as of 2026-09-22.
+
+See [docs/MINI_SSD.md](docs/MINI_SSD.md).
 
 ## Read-only diagnostics
 
-`superx-diag` is the first executable tool. The hardened collector supports:
+superx-diag supports:
 
 - DMI/kernel/module state;
 - hwmon/thermal/power telemetry;
 - display/battery state;
 - PCIe/NVMe controller + namespace discovery;
 - Mini SSD presence classification;
-- allow-listed SMART/error fields when `nvme-cli` is available;
+- allow-listed SMART/error fields when nvme-cli is available;
 - filtered relevant kernel messages;
-- passive cached Frost-Bay-like BlueZ metadata without starting a scan;
+- passive cached Bluetooth metadata without starting a scan;
 - default redaction of SSD serials and Bluetooth addresses.
 
-Unique identifiers require explicit `--include-identifiers` opt-in.
+Unique identifiers require explicit opt-in.
 
 ## Safety rules
 
 - Unknown EC registers and BLE characteristics are not fuzz targets.
 - Platform writes are disabled by default until individually production-qualified.
 - Requested state must be read back and match before an operation succeeds.
-- A failed prerequisite (for example entering manual fan mode) aborts dependent writes.
-- No automatic fan rollback is claimed until it is actually implemented/tested.
-- The Mini SSD is untrusted storage until qualification passes.
-- Loss/staleness of future Frost Bay telemetry can never count as healthy.
+- A failed prerequisite aborts dependent writes.
+- Internal fan control must have a tested path back to automatic/firmware ownership.
+- Mini SSD reliability remains untrusted until qualification passes.
+- Frost Bay disconnect/staleness/partial GATT state never counts as healthy.
+- Published upstream behavior is evidence, not local authorization.
 
-See [`AGENTS.md`](AGENTS.md) and [`docs/RESEARCH_METHOD.md`](docs/RESEARCH_METHOD.md).
+See [AGENTS.md](AGENTS.md) and [docs/RESEARCH_METHOD.md](docs/RESEARCH_METHOD.md).
 
 ## Current development handoff
 
-The GTK4/libadwaita shell and read-only pages are built, and the first live-machine integration pass has refreshed the read-only baseline and corrected the UI/service boundary. The suite is at **45 passing tests**.
+The GTK4/libadwaita shell and read-only pages are built. The first live-machine integration pass refreshed the baseline and corrected the UI/service boundary; that handoff reported 45 passing tests.
 
-The next task is live write validation under a root session (EPP → boost → brightness, then fan once `oxpec` has a Super X quirk). No hardware write is authorized yet.
+The next work is:
 
-See [`docs/LIVE_INTEGRATION_HANDOFF.md`](docs/LIVE_INTEGRATION_HANDOFF.md), [`docs/PHASE0_HANDOFF.md`](docs/PHASE0_HANDOFF.md) and [`ROADMAP.md`](ROADMAP.md).
+1. audit Loadout's fan/TDP implementation before writing our production stack;
+2. boot/backport an oxpec version containing the Super X quirk and validate oxp_ec under root;
+3. validate EPP → boost → brightness → fan one reversible capability at a time;
+4. keep Frost Bay disabled until the published protocol is reproduced locally through BlueZ.
 
-## Non-goals for the pre-Astra milestone
+## Non-goals for the current milestone
 
-- game-library replacement for Steam/Lutris/Heroic;
-- new controller kernel driver;
+- rebuilding the GTK shell that already exists;
+- creating another controller kernel/input stack;
 - broad ONEXPLAYER support before the Super X is solid;
 - blind overclocking/power-limit experimentation;
-- Frost Bay control before protocol evidence exists;
+- reverse-engineering Frost Bay from scratch when public evidence already exists;
 - declaring the Mini SSD healthy from one successful boot or SMART result.
 
 ## Project philosophy

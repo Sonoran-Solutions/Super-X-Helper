@@ -40,7 +40,7 @@ The UI enables a mutating control only when `can_write == true`. A discovered sy
 - `CONFIRMED_LOCAL` — all behavior advertised by this record has passed local validation.
 - `SUPPORTED_UNVERIFIED` — credible interface/source evidence exists, but the advertised operation has not passed the local production gate.
 - `READ_ONLY` — telemetry/state is trustworthy; no production write is advertised.
-- `RESEARCH_PENDING` — a separate evidence/reverse-engineering task is required.
+- `RESEARCH_PENDING` — a separate evidence/validation task is required; this may be local reproduction of an existing upstream implementation rather than new reverse engineering.
 - `UNAVAILABLE` — selected Linux stack currently does not expose the feature.
 - `ERROR` — expected capability currently fails.
 
@@ -57,7 +57,7 @@ At minimum:
 
 `Mini SSD Reliability` is intentionally `NOT_QUALIFIED` before the deep-research/qualification track.
 
-Frost Bay telemetry/control are intentionally `RESEARCH_PENDING` + `BLOCKED` before protocol research.
+Frost Bay telemetry/control are intentionally `RESEARCH_PENDING` + `BLOCKED` until the published protocol has been reproduced locally and transport/freshness/health behavior passes the production gate.
 
 ## Stable capability IDs
 
@@ -107,7 +107,7 @@ Render a visible disabled card/section:
 ```text
 Frost Bay
 Research pending
-Linux protocol/health semantics not validated
+Published protocol exists; local transport/health semantics not validated
 ```
 
 Do not fake disconnected/zero telemetry as if a backend exists.
