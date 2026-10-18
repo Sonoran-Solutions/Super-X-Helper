@@ -282,7 +282,27 @@ Passive, read-only capture added so the next drop-off arrives with context. Noth
 - `link_speed`, `link_width`, `max_link_speed`, `max_link_width` from the PCI device's `current_link_*`/`max_link_*`. A current value below max is shown as `(max Gen4 x2)` and is worth recording.
 - `aspm` (`l1`, `l1_1`, `l1_2`) from the PCI device's `link/` directory.
 - `temperature_c` from the `nvme` hwmon whose `device` link resolves under the Mini SSD PCI device (unprivileged; SMART stays unavailable without root).
-- sysfs-only, so refreshes stay cheap. The UI snapshot is not persisted; a value at the moment of an event exists only if a diagnostic export was taken then.
+- sysfs-only, so refreshes stay cheap. The UI snapshot is not persisted, so the sampler below exists to keep a history.
+
+**Periodic sampler** (`superx-mini-ssd-sample`, key `mini_ssd_telemetry_log` in `superx-diag`):
+
+- One run = one JSON line appended to `$XDG_STATE_HOME/superx-helper/mini-ssd-telemetry.jsonl` (default `~/.local/state/superx-helper/`): `timestamp_utc`, `state` (`ABSENT`/`PCIE_ONLY`/`NVME_PRESENT`), `pci_address`, `controller`, `link_speed`, `link_width`, `max_link_*`, `aspm`, `temperature_c`. Same sysfs reads as above; no journalctl, nvme-cli, mount or drive access, and the log is the only file written. It keeps logging when the drive is absent, so the transition itself is recorded.
+- The file is capped at the newest 50 000 lines (about 35 days at 60 s).
+- `superx-diag` embeds the last 200 samples and prints a `Mini SSD Samples:` summary line (last sample time and values, or `no samples`).
+- Manual run: `superx-mini-ssd-sample` (or `-o PATH` to write elsewhere). From a source checkout: `PYTHONPATH=src python3 -m superx_helper.mini_ssd_sampler`.
+- Optional user timer (every 60 s, no root; units in `contrib/systemd/`). The install step is yours to run:
+
+```bash
+mkdir -p ~/.config/systemd/user
+sed "s|@BIN@|$(command -v superx-mini-ssd-sample)|" contrib/systemd/superx-mini-ssd-sample.service > ~/.config/systemd/user/superx-mini-ssd-sample.service
+cp contrib/systemd/superx-mini-ssd-sample.timer ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now superx-mini-ssd-sample.timer
+```
+
+Remove with `systemctl --user disable --now superx-mini-ssd-sample.timer` and delete the two unit files.
+
+- Reading a sample next to an event: take the event time from `mini_ssd_events` (journal timestamps are local time with offset; samples are UTC) and look at the last samples before it. Useful questions: did `link_speed`/`link_width` drop below `max_*` first, did ASPM states change, was `temperature_c` rising, and did `state` go `NVME_PRESENT` → `PCIE_ONLY`/`ABSENT` between two samples. Samples are 60 s apart, so the last one can predate the loss by up to a minute (and suspend gaps show as missing minutes, not as data). A sample is context, not proof of cause, and says nothing about reliability.
 
 **Exporting evidence:**
 

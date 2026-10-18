@@ -1,0 +1,8 @@
+[Unit]
+Description=Super X Helper: sample Mini SSD link/ASPM/temperature (read-only)
+
+[Service]
+Type=oneshot
+# @BIN@ is replaced with the absolute path of superx-mini-ssd-sample at install time.
+ExecStart=@BIN@
+NoNewPrivileges=yes

@@ -1,0 +1,10 @@
+[Unit]
+Description=Sample the Mini SSD every 60 s (read-only)
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=60s
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

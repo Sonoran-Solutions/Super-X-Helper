@@ -26,6 +26,7 @@ classifiers = [
 superx-diag = "superx_helper.collector:main"
 superx-ui = "superx_helper.ui.app:main"
 superx-app = "superx_helper.ui.app:main"
+superx-mini-ssd-sample = "superx_helper.mini_ssd_sampler:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

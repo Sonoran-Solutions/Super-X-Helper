@@ -9,6 +9,7 @@ operator explicitly opts in.
 from __future__ import annotations
 
 import argparse
+import collections
 import datetime
 import json
 import os
@@ -640,6 +641,25 @@ def get_platform_module_status(sysfs_root: str = "") -> Dict[str, Any]:
     }
 
 
+def get_mini_ssd_telemetry_log(path: Optional[Path] = None, limit: int = 200) -> Dict[str, Any]:
+    """Tail the sampler log (read-only); a missing file is reported, not an error."""
+    from superx_helper.mini_ssd_sampler import default_log_path
+
+    path = path or default_log_path()
+    try:
+        with path.open(encoding="utf-8", errors="replace") as handle:
+            tail = [line.strip() for line in collections.deque(handle, maxlen=limit) if line.strip()]
+    except OSError as exc:
+        return {"available": False, "path": str(path), "reason": exc.strerror or str(exc), "samples": []}
+    samples: List[Any] = []
+    for line in tail:
+        try:
+            samples.append(json.loads(line))
+        except ValueError:
+            samples.append({"unparsed": line})
+    return {"available": True, "path": str(path), "samples": samples}
+
+
 def collect_all(*, include_identifiers: bool = False) -> Dict[str, Any]:
     from superx_helper.capabilities import detect_capabilities
 
@@ -657,6 +677,7 @@ def collect_all(*, include_identifiers: bool = False) -> Dict[str, Any]:
         "connectivity": get_connectivity_inventory(include_identifiers=include_identifiers),
         "kernel_messages": get_kernel_messages(),
         "mini_ssd_events": get_mini_ssd_boot_events(),
+        "mini_ssd_telemetry_log": get_mini_ssd_telemetry_log(),
         "platform_modules": get_platform_module_status(),
         "capabilities": detect_capabilities().to_dict(),
     }
@@ -687,6 +708,19 @@ def _format_mini_ssd_events(events_data: Any) -> List[str]:
         for event in events[:10]:
             lines.append(f"     {event.get('timestamp')} {event.get('message')}")
     return lines
+
+
+def _format_mini_ssd_telemetry_log(log: Any) -> str:
+    samples = log.get("samples") if isinstance(log, dict) else None
+    last = samples[-1] if samples else None
+    if not isinstance(last, dict) or "timestamp_utc" not in last:
+        return "Mini SSD Samples: no samples"
+    temp = last.get("temperature_c")
+    return (
+        f"Mini SSD Samples: {len(samples)} (last {last['timestamp_utc']}: {last.get('state')}, "
+        f"{last.get('link_speed') or '?'} x{last.get('link_width') or '?'}, "
+        f"{'?' if temp is None else temp} °C)"
+    )
 
 
 def format_summary(data: Dict[str, Any]) -> str:
@@ -744,6 +778,7 @@ def format_summary(data: Dict[str, Any]) -> str:
     mini = storage.get("mini_ssd", {})
     lines.append(f"Mini SSD Reliability: {mini.get('reliability', 'NOT_QUALIFIED')}")
     lines.extend(_format_mini_ssd_events(data.get("mini_ssd_events")))
+    lines.append(_format_mini_ssd_telemetry_log(data.get("mini_ssd_telemetry_log")))
 
     lines.extend(["", "--- [5. Thermals & Power] ---"])
     for sensor in data.get("thermal_sensors", []):
