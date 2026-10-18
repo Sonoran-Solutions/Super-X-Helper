@@ -1,8 +1,10 @@
 """Periodic, read-only Mini SSD telemetry sampler.
 
 Appends one JSON line per run to a capped log so the next controller loss comes
-with pre-event link/ASPM/temperature context.  Sysfs reads only; the log file is
-the only thing written.  Never a health verdict.
+with pre-event link/ASPM/temperature/power context, I/O counters cumulative since
+boot, and a mounted flag.  Activity is the difference between consecutive I/O
+samples.  Reads sysfs and proc mount metadata; the log file is the only thing
+written.  Never a health verdict.
 """
 
 from __future__ import annotations
@@ -15,7 +17,12 @@ from pathlib import Path
 import sys
 from typing import Dict, List, Optional
 
-from superx_helper.storage import discover_mini_ssd, read_mini_ssd_telemetry
+from superx_helper.storage import (
+    discover_mini_ssd,
+    read_mini_ssd_power_state,
+    read_mini_ssd_telemetry,
+    read_namespace_io,
+)
 
 MAX_LINES = 50_000
 # ponytail: size gate assumes every line is >100 bytes (lines are ~200+); skips
@@ -43,6 +50,8 @@ def take_sample(sysfs_root: str = "", now: Optional[datetime.datetime] = None) -
         "max_link_width": telemetry["max_link_width"],
         "aspm": telemetry["aspm"],
         "temperature_c": telemetry["temperature_c"],
+        "power": read_mini_ssd_power_state(presence.pci_address, sysfs_root),
+        "io": read_namespace_io(presence.namespaces[0] if presence.namespaces else None, sysfs_root),
     }
 
 

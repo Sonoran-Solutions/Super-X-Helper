@@ -1,8 +1,18 @@
 [Unit]
-Description=Super X Helper: sample Mini SSD link/ASPM/temperature (read-only)
+Description=Super X Helper: sample Mini SSD link/ASPM/temperature/I/O (read-only)
 
 [Service]
 Type=oneshot
 # @BIN@ is replaced with the absolute path of superx-mini-ssd-sample at install time.
 ExecStart=@BIN@
 NoNewPrivileges=yes
+# Sandbox: everything read-only except the sampler's own state directory
+# (%S/superx-helper, i.e. ~/.local/state/superx-helper), which StateDirectory=
+# creates and keeps writable. A user manager can only apply these when it can
+# create a user + mount namespace; on hosts that forbid unprivileged user
+# namespaces (Ubuntu's AppArmor default) systemd silently skips them. See
+# docs/MINI_SSD.md, Instrumentation.
+PrivateUsers=yes
+ProtectSystem=strict
+ProtectHome=read-only
+StateDirectory=superx-helper

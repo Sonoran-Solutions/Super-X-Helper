@@ -1,0 +1,69 @@
+2026-08-29T09:19:06-07:00 superx kernel: pci 0000:c4:00.0: [1dee:2268] type 00 class 0x010802 PCIe Endpoint
+2026-08-29T09:19:06-07:00 superx kernel: pci 0000:c4:00.0: BAR 0 [mem 0xd4a00000-0xd4a03fff 64bit]
+2026-08-29T09:19:06-07:00 superx kernel: pci 0000:c4:00.0: Adding to iommu group 19
+2026-08-29T09:19:06-07:00 superx kernel: nvme 0000:c4:00.0: platform quirk: setting simple suspend
+2026-08-29T09:19:06-07:00 superx kernel: nvme nvme0: pci function 0000:c4:00.0
+2026-08-29T09:19:06-07:00 superx kernel: nvme nvme0: allocated 64 MiB host memory buffer (1 segment).
+2026-08-29T09:19:06-07:00 superx kernel: nvme nvme0: 16/0/0 default/read/poll queues
+2026-08-29T09:19:06-07:00 superx kernel:  nvme0n1: p1
+2026-08-29T09:19:09-07:00 superx kernel: nvme nvme0: using unchecked data buffer
+2026-08-29T09:34:39-07:00 superx kernel: EXT4-fs (nvme0n1p1): mounted filesystem 00000000-0000-4000-8000-000000000000 r/w with ordered data mode. Quota mode: none.
+2026-08-29T09:48:22-07:00 superx kernel: nvme nvme0: controller is down; will reset: CSTS=0xffffffff, PCI_STATUS=0x10
+2026-08-29T09:48:22-07:00 superx kernel: nvme nvme0: Does your device have a faulty power saving mode enabled?
+2026-08-29T09:48:22-07:00 superx kernel: nvme nvme0: Try "nvme_core.default_ps_max_latency_us=0 pcie_aspm=off pcie_port_pm=off" and report a bug
+2026-08-29T09:48:22-07:00 superx kernel: nvme 0000:c4:00.0: enabling device (0000 -> 0002)
+2026-08-29T09:48:22-07:00 superx kernel: nvme nvme0: Disabling device after reset failure: -19
+2026-08-29T09:48:22-07:00 superx kernel: EXT4-fs warning (device nvme0n1p1): ext4_end_bio:369: I/O error 10 writing to inode 78146936 starting block 321779140)
+2026-08-29T09:48:22-07:00 superx kernel: EXT4-fs warning (device nvme0n1p1): ext4_end_bio:369: I/O error 10 writing to inode 78146937 starting block 321779510)
+2026-08-29T09:48:22-07:00 superx kernel: EXT4-fs (nvme0n1p1): failed to convert unwritten extents to written extents -- potential data loss!  (inode 78146936, error -5)
+2026-08-29T09:48:22-07:00 superx kernel: Buffer I/O error on device nvme0n1p1, logical block 321778532
+2026-08-29T09:48:22-07:00 superx kernel: Buffer I/O error on device nvme0n1p1, logical block 321778533
+2026-08-29T09:48:22-07:00 superx kernel: EXT4-fs (nvme0n1p1): failed to convert unwritten extents to written extents -- potential data loss!  (inode 78146937, error -5)
+2026-08-29T09:48:22-07:00 superx kernel: EXT4-fs (nvme0n1p1): failed to convert unwritten extents to written extents -- potential data loss!  (inode 78146938, error -5)
+2026-08-29T09:48:22-07:00 superx kernel: EXT4-fs (nvme0n1p1): failed to convert unwritten extents to written extents -- potential data loss!  (inode 78146939, error -5)
+2026-08-29T09:48:22-07:00 superx kernel: Aborting journal on device nvme0n1p1-8.
+2026-08-29T09:48:22-07:00 superx kernel: JBD2: I/O error when updating journal superblock for nvme0n1p1-8.
+2026-08-29T09:48:22-07:00 superx kernel: EXT4-fs (nvme0n1p1): Delayed block allocation failed for inode 78146946 at logical offset 0 with max blocks 277 with error 5
+2026-08-29T09:48:22-07:00 superx kernel: EXT4-fs (nvme0n1p1): This should not happen!! Data will be lost
+2026-08-29T09:48:22-07:00 superx kernel: EXT4-fs error (device nvme0n1p1) in ext4_do_writepages:2948: IO failure
+2026-08-29T09:48:22-07:00 superx kernel: EXT4-fs (nvme0n1p1): failed to convert unwritten extents to written extents -- potential data loss!  (inode 78146940, error -5)
+2026-08-29T09:48:22-07:00 superx kernel: EXT4-fs (nvme0n1p1): I/O error while writing superblock
+2026-08-29T09:48:22-07:00 superx kernel: EXT4-fs (nvme0n1p1): Remounting filesystem read-only
+2026-08-29T09:48:23-07:00 superx kernel: EXT4-fs (nvme0n1p1): shut down requested (2)
+2026-08-29T09:49:10-07:00 superx kernel: EXT4-fs warning (device nvme0n1p1): htree_dirblock_to_tree:1051: inode #2: lblock 0: comm gvfs-udisks2-vo: error -5 reading directory block
+2026-08-29T09:49:10-07:00 superx kernel: EXT4-fs warning (device nvme0n1p1): htree_dirblock_to_tree:1051: inode #2: lblock 0: comm gvfs-udisks2-vo: error -5 reading directory block
+2026-08-29T09:51:09-07:00 superx kernel: EXT4-fs (nvme0n1p1): unmounting filesystem 00000000-0000-4000-8000-000000000000.
+2026-08-29T11:09:59-07:00 superx kernel: PM: suspend entry (s2idle)
+2026-08-29T11:09:59-07:00 superx kernel: nvme 0000:c4:00.0: PM: pci_pm_suspend(): nvme_suspend [nvme] returns -16
+2026-08-29T11:09:59-07:00 superx kernel: nvme 0000:c4:00.0: PM: dpm_run_callback(): pci_pm_suspend returns -16
+2026-08-29T11:09:59-07:00 superx kernel: nvme 0000:c4:00.0: PM: failed to suspend async: error -16
+2026-08-29T11:09:59-07:00 superx kernel: PM: suspend entry (s2idle)
+2026-08-29T11:10:00-07:00 superx kernel: nvme 0000:c4:00.0: PM: pci_pm_suspend(): nvme_suspend [nvme] returns -16
+2026-08-29T11:10:00-07:00 superx kernel: nvme 0000:c4:00.0: PM: dpm_run_callback(): pci_pm_suspend returns -16
+2026-08-29T11:10:00-07:00 superx kernel: nvme 0000:c4:00.0: PM: failed to suspend async: error -16
+2026-08-29T11:51:35-07:00 superx kernel: pci 0000:c4:00.0: [1dee:2268] type 00 class 0x010802 PCIe Endpoint
+2026-08-29T11:51:35-07:00 superx kernel: pci 0000:c4:00.0: BAR 0 [mem 0x00000000-0x00003fff 64bit]
+2026-08-29T11:51:35-07:00 superx kernel: pci 0000:c4:00.0: Max Payload Size set to 256 (was 128, max 512)
+2026-08-29T11:51:35-07:00 superx kernel: pci 0000:c4:00.0: Adding to iommu group 19
+2026-08-29T11:51:35-07:00 superx kernel: pci 0000:c4:00.0: BAR 0 [mem 0xd4a00000-0xd4a03fff 64bit]: assigned
+2026-08-29T11:51:35-07:00 superx kernel: nvme 0000:c4:00.0: platform quirk: setting simple suspend
+2026-08-29T11:51:35-07:00 superx kernel: nvme nvme0: pci function 0000:c4:00.0
+2026-08-29T11:51:35-07:00 superx kernel: nvme 0000:c4:00.0: enabling device (0000 -> 0002)
+2026-08-29T11:51:35-07:00 superx kernel: nvme nvme0: allocated 64 MiB host memory buffer (1 segment).
+2026-08-29T11:51:35-07:00 superx kernel: nvme nvme0: 16/0/0 default/read/poll queues
+2026-08-29T11:51:35-07:00 superx kernel:  nvme0n1: p1
+2026-08-29T11:51:47-07:00 superx kernel: EXT4-fs (nvme0n1p1): recovery complete
+2026-08-29T11:51:47-07:00 superx kernel: EXT4-fs (nvme0n1p1): mounted filesystem 00000000-0000-4000-8000-000000000000 r/w with ordered data mode. Quota mode: none.
+2026-08-29T11:58:09-07:00 superx kernel: nvme nvme0: controller is down; will reset: CSTS=0xffffffff, PCI_STATUS=0x10
+2026-08-29T11:58:09-07:00 superx kernel: nvme nvme0: Does your device have a faulty power saving mode enabled?
+2026-08-29T11:58:09-07:00 superx kernel: nvme nvme0: Try "nvme_core.default_ps_max_latency_us=0 pcie_aspm=off pcie_port_pm=off" and report a bug
+2026-08-29T11:58:09-07:00 superx kernel: nvme0n1: I/O Cmd(0x2) @ LBA 2504628800, 64 blocks, I/O Error (sct 0x3 / sc 0x71) 
+2026-08-29T11:58:09-07:00 superx kernel: I/O error, dev nvme0n1, sector 2504628800 op 0x0:(READ) flags 0x80700 phys_seg 4 prio class 2
+2026-08-29T11:58:09-07:00 superx kernel: nvme 0000:c4:00.0: enabling device (0000 -> 0002)
+2026-08-29T11:58:09-07:00 superx kernel: nvme nvme0: Disabling device after reset failure: -19
+2026-08-29T11:58:09-07:00 superx kernel: Buffer I/O error on dev nvme0n1p1, logical block 0, lost async page write
+2026-08-29T11:58:09-07:00 superx kernel: EXT4-fs (nvme0n1p1): shut down requested (2)
+2026-08-29T11:58:09-07:00 superx kernel: Aborting journal on device nvme0n1p1-8.
+2026-08-29T12:49:52-07:00 superx kernel: PM: suspend entry (s2idle)
+2026-08-29T12:49:52-07:00 superx kernel: nvme 0000:c4:00.0: PM: failed to suspend async: error -16
+2026-08-29T12:49:52-07:00 superx kernel: PM: suspend exit

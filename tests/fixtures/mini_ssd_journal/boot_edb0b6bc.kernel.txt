@@ -1,3 +1,4 @@
+2026-09-18T18:56:07-07:00 superx kernel: pci 0000:c4:00.0: [1dee:2268] type 00 class 0x010802 PCIe Endpoint
 2026-09-18T18:56:07-07:00 superx kernel: nvme 0000:c4:00.0: platform quirk: setting simple suspend
 2026-09-18T18:56:07-07:00 superx kernel: nvme 0000:c3:00.0: platform quirk: setting simple suspend
 2026-09-18T18:56:07-07:00 superx kernel: nvme nvme0: pci function 0000:c4:00.0

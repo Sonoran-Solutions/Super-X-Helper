@@ -269,12 +269,15 @@ Passive, read-only capture added so the next drop-off arrives with context. Noth
 
 **Cross-boot kernel events** (`superx-diag`, key `mini_ssd_events`):
 
-- Lists every boot the journal retains, then reads that boot's kernel log.
-- Resolves the Mini SSD controller per boot from `nvme nvmeN: pci function 0000:c4:00.0`, so the `nvme0`/`nvme1` swap cannot misattribute internal-SSD messages.
-- Keeps only Mini SSD-scoped lines (controller, PCI address or its namespace) that match: controller is down, Disabling device, reset, timeout, Device not ready, Removing after probe failure, I/O error, failed to suspend, enabling device. Probe noise is dropped.
+- Lists every boot the journal retains, then reads that boot's kernel log with `journalctl -k -b <id>`. Plain `journalctl -k` without `-b` reads only the current boot; that is how the first hand review undercounted, so always pass a boot id when checking history by hand.
+- Resolves the Mini SSD controller per boot from `nvme nvmeN: pci function 0000:c4:00.0`, so the `nvme0`/`nvme1` swap cannot misattribute internal-SSD messages. Lines addressed to `nvme 0000:c4:00.0:` are kept even when no controller ever probed, so a probe failure at boot (`Device not ready`, `Removing after probe failure`) is captured.
+- Each boot records `pcie_enumerated` (the endpoint appeared on PCIe) and `nvme_probed` (the NVMe driver bound it). False/False means absent, True/False means PCIe only with no NVMe probe, True/True means probed.
+- Keeps only Mini SSD-scoped lines (controller, PCI address, namespace or partition such as `nvme0n1p1`) that match: controller is down, Disabling device, reset, timeout, Device not ready, Removing after probe failure, I/O error, data loss, data will be lost, aborting journal, remounting filesystem read-only, failed to suspend, enabling device. Probe noise is dropped.
+- Every event carries a `kind`: `loss` (controller is down, Disabling device, Device not ready, Removing after probe failure), `io_error` (I/O and ext4 damage lines), `aftermath` (failed to suspend), `recovery` (enabling device after a loss in the same boot) or `other`. Losses are counted as episodes: a `loss` line starts an episode unless one is already open, and only a fresh `pci function` probe closes it. The summary header reports loss episodes, not raw line counts, and always prints every `loss` line.
+- Event timestamps are normalized to UTC, matching boot `start` and the sampler, so the three line up without conversion.
 - Records the number of `PM: suspend entry` lines per boot and, for each event, how many suspends preceded it in that boot.
 - Never emits the probe line carrying `subsysnqn`, which embeds the serial. Hostnames are dropped.
-- Read the output as a timeline, not a count: after a loss, every later `s2idle` attempt in that boot logs `PM: failed to suspend async: error -16` for the dead endpoint, and a manual remove/rescan logs `enabling device`. Those are aftermath of one loss (`controller is down ... CSTS=0xffffffff`), not new losses.
+- After a loss, every later `s2idle` attempt in that boot logs `PM: failed to suspend async: error -16` for the dead endpoint (`aftermath`), and a manual remove/rescan logs `enabling device` (`recovery`). Those belong to one episode, not new losses. On other machines `enabling device` can be normal probe output, which is why it only counts as `recovery` after a loss.
 - Reads the journal of every retained boot, so it stays a diagnostic action and is not part of UI refreshes. Reading the system journal needs `adm` or `systemd-journal` group membership (the development user is in `adm`); without it the section reports `unavailable` instead of silently returning zero events.
 
 **Cheap per-refresh telemetry** (UI snapshot, `mini_ssd` observed value; also visible on the Storage page and dashboard card as e.g. `Gen4 x2 · 46.9 °C`):
@@ -286,7 +289,7 @@ Passive, read-only capture added so the next drop-off arrives with context. Noth
 
 **Periodic sampler** (`superx-mini-ssd-sample`, key `mini_ssd_telemetry_log` in `superx-diag`):
 
-- One run = one JSON line appended to `$XDG_STATE_HOME/superx-helper/mini-ssd-telemetry.jsonl` (default `~/.local/state/superx-helper/`): `timestamp_utc`, `state` (`ABSENT`/`PCIE_ONLY`/`NVME_PRESENT`), `pci_address`, `controller`, `link_speed`, `link_width`, `max_link_*`, `aspm`, `temperature_c`. Same sysfs reads as above; no journalctl, nvme-cli, mount or drive access, and the log is the only file written. It keeps logging when the drive is absent, so the transition itself is recorded.
+- One run = one JSON line appended to `$XDG_STATE_HOME/superx-helper/mini-ssd-telemetry.jsonl` (default `~/.local/state/superx-helper/`): `timestamp_utc`, `state` (`ABSENT`/`PCIE_ONLY`/`NVME_PRESENT`), `pci_address`, `controller`, `link_speed`, `link_width`, `max_link_*`, `aspm`, `temperature_c`, plus `power` (`l1_1_pcipm`, `l1_2_pcipm`, `clkpm`, `d3cold_allowed`, `runtime_status`: the remaining H2 variables) and `io` (`reads_completed`, `sectors_read`, `writes_completed`, `sectors_written` from `/sys/block/<ns>/stat`, and `mounted`). The I/O counters are cumulative since boot, so activity is the difference between consecutive samples; that is what separates the idle loss from the two under-I/O losses. `mounted` comes from `/proc/self/mountinfo` matched on `/dev/<ns>`; no mount point or other mount detail is stored. Same kind of sysfs reads as above; no journalctl, nvme-cli, mount or drive access, and the log is the only file written. It keeps logging when the drive is absent, so the transition itself is recorded.
 - The file is capped at the newest 50 000 lines (about 35 days at 60 s).
 - `superx-diag` embeds the last 200 samples and prints a `Mini SSD Samples:` summary line (last sample time and values, or `no samples`).
 - Manual run: `superx-mini-ssd-sample` (or `-o PATH` to write elsewhere). From a source checkout: `PYTHONPATH=src python3 -m superx_helper.mini_ssd_sampler`.
@@ -300,9 +303,11 @@ systemctl --user daemon-reload
 systemctl --user enable --now superx-mini-ssd-sample.timer
 ```
 
-Remove with `systemctl --user disable --now superx-mini-ssd-sample.timer` and delete the two unit files.
+Remove with `systemctl --user disable --now superx-mini-ssd-sample.timer` and delete the two unit files. After pulling a newer unit, repeat the `sed`/`cp` and `daemon-reload` steps; the installed copy does not update itself.
 
-- Reading a sample next to an event: take the event time from `mini_ssd_events` (journal timestamps are local time with offset; samples are UTC) and look at the last samples before it. Useful questions: did `link_speed`/`link_width` drop below `max_*` first, did ASPM states change, was `temperature_c` rising, and did `state` go `NVME_PRESENT` → `PCIE_ONLY`/`ABSENT` between two samples. Samples are 60 s apart, so the last one can predate the loss by up to a minute (and suspend gaps show as missing minutes, not as data). A sample is context, not proof of cause, and says nothing about reliability.
+- **Sandbox, and its limit on this unit.** The service sets `ProtectSystem=strict`, `ProtectHome=read-only`, `PrivateUsers=yes` and `StateDirectory=superx-helper`, so on a host that allows it only `~/.local/state/superx-helper` is writable. Tested on the development Super X on 2026-10-18 (Ubuntu, systemd 255, `kernel.apparmor_restrict_unprivileged_userns=1`): the user manager cannot create a mount namespace there, systemd skips these settings without an error, and a probe unit could still write outside the state directory. On this unit the "only the log is written" guarantee therefore rests on the sampler's code and tests, not on the sandbox.
+
+- Reading a sample next to an event: take the event time from `mini_ssd_events` (both are UTC) and look at the last samples before it. Useful questions: was the drive mounted and were the `io` counters moving, did `link_speed`/`link_width` drop below `max_*` first, did ASPM or `power` states change, was `temperature_c` rising, and did `state` go `NVME_PRESENT` → `PCIE_ONLY`/`ABSENT` between two samples. Samples are 60 s apart, so the last one can predate the loss by up to a minute (and suspend gaps show as missing minutes, not as data). A sample is context, not proof of cause, and says nothing about reliability.
 
 **Exporting evidence:**
 

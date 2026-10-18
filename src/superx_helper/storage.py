@@ -97,6 +97,66 @@ def read_mini_ssd_telemetry(
     return data
 
 
+def read_mini_ssd_power_state(
+    pci_address: Optional[str], sysfs_root: str = ""
+) -> Dict[str, object]:
+    """Read PCIe power-management flags without changing device state."""
+    data: Dict[str, object] = dict.fromkeys(
+        ("l1_1_pcipm", "l1_2_pcipm", "clkpm", "d3cold_allowed", "runtime_status")
+    )
+    if pci_address is None:
+        return data
+
+    pci = rooted(sysfs_root, "/sys/bus/pci/devices") / pci_address
+    for name, path in (
+        ("l1_1_pcipm", "link/l1_1_pcipm"),
+        ("l1_2_pcipm", "link/l1_2_pcipm"),
+        ("clkpm", "link/clkpm"),
+        ("d3cold_allowed", "d3cold_allowed"),
+        ("runtime_status", "power/runtime_status"),
+    ):
+        try:
+            value = (pci / path).read_text().strip()
+        except (OSError, UnicodeError):
+            continue
+        data[name] = (value or None) if name == "runtime_status" else {"0": False, "1": True}.get(value)
+    return data
+
+
+def read_namespace_io(
+    namespace: Optional[str], sysfs_root: str = ""
+) -> Optional[Dict[str, object]]:
+    """Read cumulative block I/O counters and mount presence, excluding mount details."""
+    if namespace is None:
+        return None
+
+    data: Dict[str, object] = {"namespace": namespace}
+    try:
+        fields = rooted(sysfs_root, f"/sys/block/{namespace}/stat").read_text().split()
+    except (OSError, UnicodeError):
+        fields = []
+    for name, index in (("reads_completed", 0), ("sectors_read", 2),
+                        ("writes_completed", 4), ("sectors_written", 6)):
+        try:
+            data[name] = int(fields[index])
+        except (IndexError, ValueError):
+            data[name] = None
+
+    source_pattern = re.compile(rf"/dev/{re.escape(namespace)}(?:p[0-9]+)?")
+    data["mounted"] = None
+    try:
+        with rooted(sysfs_root, "/proc/self/mountinfo").open() as mountinfo:
+            data["mounted"] = False
+            for line in mountinfo:
+                fields = line.partition(" - ")[2].split()
+                if len(fields) > 1 and source_pattern.fullmatch(fields[1]):
+                    data["mounted"] = True
+                    break
+    except (OSError, UnicodeError):
+        data["mounted"] = None
+    return data
+
+
 def normalize_pci_id(value: Optional[str]) -> Optional[str]:
     if value is None:
         return None
