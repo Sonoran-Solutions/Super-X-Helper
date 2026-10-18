@@ -16,6 +16,7 @@ from superx_helper.contracts import (
     SafetyState,
 )
 from superx_helper.platform import PlatformBackend
+from superx_helper.storage import read_mini_ssd_telemetry
 
 
 def coerce_capability_id(value: Any) -> Optional[CapabilityId]:
@@ -131,6 +132,7 @@ class SuperXService:
         low = self.platform.refresh_capabilities()
         battery = get_battery_info()
         display = get_display_info()
+        sysfs_root = getattr(self.platform, "sysfs_root", "")
         storage = {
             "mini_ssd": {
                 "state": low.mini_ssd_classification,
@@ -138,6 +140,7 @@ class SuperXService:
                 "controller": low.mini_ssd_controller,
                 "namespaces": list(low.mini_ssd_namespaces),
                 "reliability": "NOT_QUALIFIED",
+                **read_mini_ssd_telemetry(low.mini_ssd_pci_address, sysfs_root),
             }
         }
         records = build_capability_records(

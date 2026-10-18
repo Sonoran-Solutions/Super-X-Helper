@@ -1,0 +1,20 @@
+2026-09-18T18:56:07-07:00 superx kernel: pci 0000:c4:00.0: [1dee:2268] type 00 class 0x010802 PCIe Endpoint
+2026-09-18T18:56:07-07:00 superx kernel: nvme 0000:c4:00.0: platform quirk: setting simple suspend
+2026-09-18T18:56:07-07:00 superx kernel: nvme 0000:c3:00.0: platform quirk: setting simple suspend
+2026-09-18T18:56:07-07:00 superx kernel: nvme nvme0: pci function 0000:c4:00.0
+2026-09-18T18:56:07-07:00 superx kernel: nvme nvme1: pci function 0000:c3:00.0
+2026-09-18T18:56:07-07:00 superx kernel: nvme nvme1: allocated 64 MiB host memory buffer (1 segment).
+2026-09-18T18:56:07-07:00 superx kernel: nvme nvme0: allocated 64 MiB host memory buffer (1 segment).
+2026-09-18T18:56:07-07:00 superx kernel: nvme nvme0: subsysnqn nqn.2014-08.org.nvmexpress:FAKESERIAL123
+2026-09-18T18:56:07-07:00 superx kernel: nvme nvme0: 16/0/0 default/read/poll queues
+2026-09-18T18:56:07-07:00 superx kernel:  nvme0n1: p1
+2026-09-18T18:56:10-07:00 superx kernel: nvme nvme0: using unchecked data buffer
+2026-09-19T06:07:13-07:00 superx kernel: nvme nvme0: controller is down; will reset: CSTS=0xffffffff, PCI_STATUS=0x10
+2026-09-19T06:07:13-07:00 superx kernel: nvme nvme0: Does your device have a faulty power saving mode enabled?
+2026-09-19T06:07:13-07:00 superx kernel: nvme nvme0: Try "nvme_core.default_ps_max_latency_us=0 pcie_aspm=off pcie_port_pm=off" and report a bug
+2026-09-19T06:07:13-07:00 superx kernel: nvme 0000:c4:00.0: enabling device (0000 -> 0002)
+2026-09-19T06:07:13-07:00 superx kernel: nvme nvme0: Disabling device after reset failure: -19
+2026-09-19T16:11:41-07:00 superx kernel: PM: suspend entry (s2idle)
+2026-09-19T16:11:53-07:00 superx kernel: nvme 0000:c4:00.0: PM: pci_pm_suspend(): nvme_suspend [nvme] returns -16
+2026-09-19T16:11:53-07:00 superx kernel: nvme 0000:c4:00.0: PM: failed to suspend async: error -16
+2026-09-19T16:11:53-07:00 superx kernel: PM: suspend exit

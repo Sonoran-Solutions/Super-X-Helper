@@ -46,6 +46,39 @@ def _format_display_connectors(val: Any) -> Optional[str]:
     return ", ".join(conn_strs) if conn_strs else "No active displays"
 
 
+def format_mini_ssd_telemetry(val: Any) -> Optional[str]:
+    """Format optional link/temperature fields from the service contract."""
+    if not isinstance(val, dict):
+        return None
+    generations = {2.5: "Gen1", 5.0: "Gen2", 8.0: "Gen3", 16.0: "Gen4", 32.0: "Gen5", 64.0: "Gen6"}
+
+    def speed_number(speed: Any) -> Optional[float]:
+        try:
+            return float(str(speed).split()[0])
+        except (ValueError, IndexError):
+            return None
+
+    def link_text(speed: Any, width: Any) -> str:
+        parts = [str(generations.get(speed_number(speed), speed))] if speed else []
+        if width is not None:
+            parts.append(f"x{width}")
+        return " ".join(parts)
+
+    speed, width = val.get("link_speed"), val.get("link_width")
+    max_speed, max_width = val.get("max_link_speed"), val.get("max_link_width")
+    link = link_text(speed, width)
+    speeds = speed_number(speed), speed_number(max_speed)
+    slower = all(s is not None for s in speeds) and speeds[0] < speeds[1]
+    narrower = isinstance(width, int) and isinstance(max_width, int) and width < max_width
+    if link and (slower or narrower):
+        link += f" (max {link_text(max_speed, max_width)})"
+    parts = [link] if link else []
+    temperature = val.get("temperature_c")
+    if isinstance(temperature, (int, float)):
+        parts.append(f"{temperature:.1f} °C")
+    return " · ".join(parts) or None
+
+
 def _format_mini_ssd_presence(val: Any) -> Optional[str]:
     if not isinstance(val, dict) or "state" not in val:
         return None
@@ -57,6 +90,9 @@ def _format_mini_ssd_presence(val: Any) -> Optional[str]:
     ctrl = val.get("controller")
     if ctrl:
         parts.append(f"({ctrl})")
+    telemetry = format_mini_ssd_telemetry(val)
+    if telemetry:
+        parts.append(telemetry)
     return " • ".join(parts)
 
 

@@ -1,0 +1,38 @@
+[
+  {
+    "index": -7,
+    "boot_id": "0829aa11bb22cc33dd44ee55ff667788",
+    "first_entry": 1788020346000000,
+    "last_entry": 1788032992000000
+  },
+  {
+    "index": -6,
+    "boot_id": "1a2b3c4d5e6f708192a3b4c5d6e7f809",
+    "first_entry": 1790866801000000,
+    "last_entry": 1790866802000000
+  },
+  {
+    "index": -5,
+    "boot_id": "9f8e7d6c5b4a39281706f5e4d3c2b1a0",
+    "first_entry": 1790950200000000,
+    "last_entry": 1790950802000000
+  },
+  {
+    "index": -3,
+    "boot_id": "aaaa1111bbbb2222cccc3333dddd4444",
+    "first_entry": 1789277607000000,
+    "last_entry": 1789292000000000
+  },
+  {
+    "index": -2,
+    "boot_id": "edb0b6bc609540c997ba448ce65a6ee2",
+    "first_entry": 1789178167000000,
+    "last_entry": 1789218908000000
+  },
+  {
+    "index": -1,
+    "boot_id": "ffff5555eeee6666dddd7777cccc8888",
+    "first_entry": 1789100000000000,
+    "last_entry": 1789110000000000
+  }
+]

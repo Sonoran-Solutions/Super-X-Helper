@@ -1,0 +1,8 @@
+2026-10-02T07:10:00-07:00 superx kernel: pci 0000:c3:00.0: [144d:a80a] type 00 class 0x010802 PCIe Endpoint
+2026-10-02T07:10:00-07:00 superx kernel: nvme nvme0: pci function 0000:c3:00.0
+2026-10-02T07:10:00-07:00 superx kernel: nvme nvme0: allocated 64 MiB host memory buffer (1 segment).
+2026-10-02T07:10:00-07:00 superx kernel: nvme nvme0: 16/0/0 default/read/poll queues
+2026-10-02T07:10:01-07:00 superx kernel:  nvme0n1: p1 p2
+2026-10-02T07:10:02-07:00 superx kernel: EXT4-fs (nvme0n1p2): mounted filesystem 00000000-0000-4000-8000-000000000000 r/w with ordered data mode. Quota mode: none.
+2026-10-02T07:20:00-07:00 superx kernel: PM: suspend entry (s2idle)
+2026-10-02T07:20:02-07:00 superx kernel: PM: suspend exit

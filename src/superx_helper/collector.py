@@ -9,6 +9,7 @@ operator explicitly opts in.
 from __future__ import annotations
 
 import argparse
+import collections
 import datetime
 import json
 import os
@@ -24,6 +25,43 @@ from superx_helper.storage import discover_mini_ssd, list_nvme_namespaces, roote
 CommandRunner = Callable[[Sequence[str]], Tuple[int, str, str]]
 _RELEVANT_KERNEL = re.compile(r"\b(nvme|pcie|aer|oxpec|amdgpu|bluetooth|btusb)\b", re.I)
 _FROST_BAY_NAME = re.compile(r"(frost|coolingsystem|once\d*|onex.*cool)", re.I)
+
+MINI_SSD_PCI_ADDRESS = "0000:c4:00.0"
+
+_NVME_PCI_FUNCTION = re.compile(r"^nvme (?P<ctrl>nvme\d+): pci function (?P<addr>[0-9A-Fa-f:.]+)\s*$")
+_MINI_SSD_EVENT_KEYWORDS = (
+    "controller is down",
+    "disabling device",
+    "reset",
+    "timeout",
+    "device not ready",
+    "removing after probe failure",
+    "i/o error",
+    "data loss",
+    "data will be lost",
+    "aborting journal",
+    "remounting filesystem read-only",
+    "failed to suspend",
+    "enabling device",
+)
+# Keyword -> event kind.  Order matters: earlier tuples win when several match.
+_MINI_SSD_LOSS_KEYWORDS = (
+    "controller is down",
+    "disabling device",
+    "device not ready",
+    "removing after probe failure",
+)
+_MINI_SSD_IO_ERROR_KEYWORDS = (
+    "i/o error",
+    "data loss",
+    "data will be lost",
+    "aborting journal",
+    "remounting filesystem read-only",
+)
+_MINI_SSD_AFTERMATH_KEYWORDS = ("failed to suspend",)
+_MINI_SSD_RECOVERY_KEYWORDS = ("enabling device",)
+_MINI_SSD_SUMMARY_OTHER_EVENTS = 10
+_SERIAL_MARKERS = ("subsysnqn", "nqn.")
 
 
 def _read_sysfs_text(path: str | Path) -> Optional[str]:
@@ -427,6 +465,247 @@ def get_kernel_messages(runner: CommandRunner = _run_command) -> Dict[str, Any]:
     return {"available": True, "lines": lines[-200:]}
 
 
+def _namespace_pattern(controller: str) -> "re.Pattern[str]":
+    """Match the Mini SSD's namespaces and partitions (``nvme0n1``, ``nvme0n1p1``)."""
+    return re.compile(rf"(?<![0-9A-Za-z]){re.escape(controller)}n\d+(?:p\d+)?(?![0-9])")
+
+
+def _is_mini_ssd_scoped(message: str, controller: Optional[str], pci_address: str) -> bool:
+    # A message prefixed with the PCI address is Mini SSD scoped even before (or
+    # without) a controller being probed, e.g. probe failures.
+    if message.startswith(f"nvme {pci_address}:"):
+        return True
+    if not controller:
+        return False
+    if message.startswith(f"nvme {controller}:"):
+        return True
+    return bool(_namespace_pattern(controller).search(message))
+
+
+def _matches_event_keyword(message: str) -> bool:
+    lowered = message.lower()
+    return any(keyword in lowered for keyword in _MINI_SSD_EVENT_KEYWORDS)
+
+
+def _event_kind(message: str, loss_seen: bool) -> str:
+    lowered = message.lower()
+    if any(keyword in lowered for keyword in _MINI_SSD_LOSS_KEYWORDS):
+        return "loss"
+    if any(keyword in lowered for keyword in _MINI_SSD_IO_ERROR_KEYWORDS):
+        return "io_error"
+    if any(keyword in lowered for keyword in _MINI_SSD_AFTERMATH_KEYWORDS):
+        return "aftermath"
+    if any(keyword in lowered for keyword in _MINI_SSD_RECOVERY_KEYWORDS):
+        return "recovery" if loss_seen else "other"
+    return "other"
+
+
+def _utc_timestamp(timestamp: str) -> str:
+    """Normalize a logged timestamp to UTC; unparsable input is kept verbatim."""
+    try:
+        moment = datetime.datetime.fromisoformat(timestamp)
+    except (TypeError, ValueError):
+        return timestamp
+    if moment.tzinfo is None:
+        return timestamp
+    return moment.astimezone(datetime.timezone.utc).isoformat()
+
+
+def _iso_from_epoch_microseconds(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    try:
+        micros = int(value)
+    except (TypeError, ValueError):
+        return None
+    moment = datetime.datetime.fromtimestamp(micros / 1_000_000, tz=datetime.timezone.utc)
+    return moment.isoformat()
+
+
+def parse_mini_ssd_boot_log(
+    text: str,
+    pci_address: str = MINI_SSD_PCI_ADDRESS,
+) -> Dict[str, Any]:
+    """Parse one boot's ``journalctl -k -o short-iso`` text for Mini SSD events.
+
+    The NVMe controller name for the removable Mini SSD is not stable across
+    boots, so the PCI address is used as the anchor.  Lines carrying the drive
+    serial (``subsysnqn`` / ``nqn.``) are dropped before anything else.
+    """
+    controller_by_address: Dict[str, str] = {}
+    mini_controller: Optional[str] = None
+    active_mini_controller: Optional[str] = None
+    suspend_count = 0
+    events: List[Dict[str, Any]] = []
+    pcie_enumerated = False
+    nvme_probed = False
+    in_loss = False
+    loss_seen = False
+    loss_episodes = 0
+    pci_enumeration = re.compile(rf"^pci {re.escape(pci_address)}: \[[0-9a-f]{{4}}:[0-9a-f]{{4}}\]")
+
+    for raw_line in text.splitlines():
+        if not raw_line.strip():
+            continue
+        if any(marker in raw_line for marker in _SERIAL_MARKERS):
+            continue
+
+        parts = raw_line.split()
+        if len(parts) < 4 or parts[2] != "kernel:":
+            continue
+        timestamp = parts[0]
+        marker = raw_line.find("kernel:")
+        message = raw_line[marker + len("kernel:"):].strip()
+        if not message:
+            continue
+
+        if pci_enumeration.match(message):
+            pcie_enumerated = True
+
+        function_match = _NVME_PCI_FUNCTION.match(message)
+        if function_match:
+            ctrl = function_match.group("ctrl")
+            address = function_match.group("addr")
+            controller_by_address[address] = ctrl
+            if address == pci_address:
+                nvme_probed = True
+                if mini_controller is None:
+                    mini_controller = ctrl
+                # Events use the mapping in effect at that line, so a
+                # re-enumerated controller is tracked separately.
+                active_mini_controller = ctrl
+                # A fresh probe (e.g. after a manual rescan) starts a new
+                # loss episode if the drive goes down again.
+                in_loss = False
+
+        if "PM: suspend entry" in message:
+            suspend_count += 1
+
+        if not _is_mini_ssd_scoped(message, active_mini_controller, pci_address):
+            continue
+        if not _matches_event_keyword(message):
+            continue
+
+        kind = _event_kind(message, loss_seen)
+        # Count loss episodes, not lines: the run stays open across the
+        # interleaved io_error/aftermath lines until a re-enumeration.
+        episode_start = False
+        if kind == "loss":
+            loss_seen = True
+            if not in_loss:
+                in_loss = True
+                episode_start = True
+                loss_episodes += 1
+
+        events.append(
+            {
+                "timestamp": _utc_timestamp(timestamp),
+                "kind": kind,
+                "controller": active_mini_controller,
+                "message": message,
+                "suspends_before": suspend_count,
+                "suspend_before": suspend_count > 0,
+                "episode_start": episode_start,
+            }
+        )
+
+    return {
+        "controller": mini_controller,
+        "suspend_count": suspend_count,
+        "events": events,
+        "pcie_enumerated": pcie_enumerated,
+        "nvme_probed": nvme_probed,
+        "loss_episodes": loss_episodes,
+    }
+
+
+def get_mini_ssd_boot_events(
+    runner: CommandRunner = _run_command,
+    pci_address: str = MINI_SSD_PCI_ADDRESS,
+) -> Dict[str, Any]:
+    code, stdout, stderr = runner(["journalctl", "--list-boots", "-o", "json", "--no-pager"])
+    if code != 0:
+        return {
+            "available": False,
+            "reason": (stderr.strip() or f"journalctl exited {code}")[:240],
+            "pci_address": pci_address,
+            "boots": [],
+        }
+    try:
+        listed = json.loads(stdout)
+    except json.JSONDecodeError:
+        return {
+            "available": False,
+            "reason": "journalctl --list-boots returned invalid JSON"[:240],
+            "pci_address": pci_address,
+            "boots": [],
+        }
+    if not isinstance(listed, list):
+        return {
+            "available": False,
+            "reason": "journalctl --list-boots returned unexpected JSON"[:240],
+            "pci_address": pci_address,
+            "boots": [],
+        }
+
+    boots: List[Dict[str, Any]] = []
+    for entry in listed:
+        if not isinstance(entry, dict):
+            continue
+        boot_id = entry.get("boot_id")
+        index = entry.get("index")
+        start = _iso_from_epoch_microseconds(entry.get("first_entry"))
+        boot: Dict[str, Any] = {
+            "boot_id": boot_id,
+            "index": index,
+            "start": start,
+            "controller": None,
+            "suspend_count": 0,
+            "events": [],
+            "pcie_enumerated": False,
+            "nvme_probed": False,
+            "loss_episodes": 0,
+            "available": True,
+        }
+        if not boot_id:
+            boot.update(available=False, reason="boot entry missing boot_id")
+            boots.append(boot)
+            continue
+
+        log_code, log_stdout, log_stderr = runner(
+            ["journalctl", "-k", "-b", str(boot_id), "-o", "short-iso", "--no-pager"]
+        )
+        if log_code != 0:
+            boot.update(
+                available=False,
+                reason=(log_stderr.strip() or f"journalctl exited {log_code}")[:240],
+            )
+            boots.append(boot)
+            continue
+
+        parsed = parse_mini_ssd_boot_log(log_stdout, pci_address)
+        boot.update(
+            controller=parsed["controller"],
+            suspend_count=parsed["suspend_count"],
+            events=parsed["events"],
+            pcie_enumerated=parsed["pcie_enumerated"],
+            nvme_probed=parsed["nvme_probed"],
+            loss_episodes=parsed["loss_episodes"],
+        )
+        boots.append(boot)
+
+    return {
+        "available": True,
+        "pci_address": pci_address,
+        "boot_count": len(boots),
+        "boots_with_events": sum(1 for boot in boots if boot.get("events")),
+        "boots_with_losses": sum(1 for boot in boots if boot.get("loss_episodes")),
+        "event_count": sum(len(boot.get("events", [])) for boot in boots),
+        "loss_episodes": sum(boot.get("loss_episodes", 0) for boot in boots),
+        "boots": boots,
+    }
+
+
 def get_platform_module_status(sysfs_root: str = "") -> Dict[str, Any]:
     modules_loaded: List[str] = []
     modules_path = rooted(sysfs_root, "/proc/modules")
@@ -449,6 +728,25 @@ def get_platform_module_status(sysfs_root: str = "") -> Dict[str, Any]:
     }
 
 
+def get_mini_ssd_telemetry_log(path: Optional[Path] = None, limit: int = 200) -> Dict[str, Any]:
+    """Tail the sampler log (read-only); a missing file is reported, not an error."""
+    from superx_helper.mini_ssd_sampler import default_log_path
+
+    path = path or default_log_path()
+    try:
+        with path.open(encoding="utf-8", errors="replace") as handle:
+            tail = [line.strip() for line in collections.deque(handle, maxlen=limit) if line.strip()]
+    except OSError as exc:
+        return {"available": False, "path": str(path), "reason": exc.strerror or str(exc), "samples": []}
+    samples: List[Any] = []
+    for line in tail:
+        try:
+            samples.append(json.loads(line))
+        except ValueError:
+            samples.append({"unparsed": line})
+    return {"available": True, "path": str(path), "samples": samples}
+
+
 def collect_all(*, include_identifiers: bool = False) -> Dict[str, Any]:
     from superx_helper.capabilities import detect_capabilities
 
@@ -465,9 +763,74 @@ def collect_all(*, include_identifiers: bool = False) -> Dict[str, Any]:
         "thermal_sensors": get_hwmon_info(),
         "connectivity": get_connectivity_inventory(include_identifiers=include_identifiers),
         "kernel_messages": get_kernel_messages(),
+        "mini_ssd_events": get_mini_ssd_boot_events(),
+        "mini_ssd_telemetry_log": get_mini_ssd_telemetry_log(),
         "platform_modules": get_platform_module_status(),
         "capabilities": detect_capabilities().to_dict(),
     }
+
+
+def _format_mini_ssd_events(events_data: Any) -> List[str]:
+    if not isinstance(events_data, dict) or not events_data.get("available"):
+        reason = None
+        if isinstance(events_data, dict):
+            reason = events_data.get("reason")
+        reason = reason or "no cross-boot kernel event history"
+        return [f"Mini SSD Events  : unavailable ({reason})"]
+
+    lines = [
+        f"Mini SSD Events  : {events_data.get('loss_episodes', 0)} loss episode(s) in "
+        f"{events_data.get('boots_with_losses', 0)} of {events_data.get('boot_count', 0)} boot(s); "
+        f"{events_data.get('event_count', 0)} related line(s) "
+        f"(keyed by PCI {events_data.get('pci_address')}, times UTC)"
+    ]
+    for boot in events_data.get("boots", []):
+        if not isinstance(boot, dict):
+            continue
+        events = boot.get("events") or []
+        pcie_only = bool(boot.get("pcie_enumerated")) and not boot.get("nvme_probed")
+        if not events and not pcie_only:
+            continue
+        boot_id = str(boot.get("boot_id") or "unknown")[:8]
+        controller = boot.get("controller") or "no NVMe probe"
+        if boot.get("events"):
+            state = "probed" if boot.get("nvme_probed") else "PCIe only, no NVMe probe"
+            suspends = events[0].get("suspends_before", 0)
+        else:
+            state = "PCIe only, no NVMe probe" if pcie_only else "not seen"
+            suspends = "-"
+        lines.append(
+            f"   boot {boot_id} ({boot.get('start')}, {controller}, {state}, "
+            f"suspends before first event: {suspends})"
+        )
+        losses = [event for event in events if event.get("kind") == "loss"]
+        others = [event for event in events if event.get("kind") != "loss"]
+        shown = [(event, True) for event in losses]
+        shown = sorted(
+            shown + [(event, False) for event in others[:_MINI_SSD_SUMMARY_OTHER_EVENTS]],
+            key=lambda pair: events.index(pair[0]),
+        )
+        for event, _is_loss in shown:
+            lines.append(
+                f"     {event.get('timestamp')} [{event.get('kind')}] {event.get('message')}"
+            )
+        omitted = len(events) - len(shown)
+        if omitted > 0:
+            lines.append(f"     … {omitted} more related line(s)")
+    return lines
+
+
+def _format_mini_ssd_telemetry_log(log: Any) -> str:
+    samples = log.get("samples") if isinstance(log, dict) else None
+    last = samples[-1] if samples else None
+    if not isinstance(last, dict) or "timestamp_utc" not in last:
+        return "Mini SSD Samples: no samples"
+    temp = last.get("temperature_c")
+    return (
+        f"Mini SSD Samples: {len(samples)} (last {last['timestamp_utc']}: {last.get('state')}, "
+        f"{last.get('link_speed') or '?'} x{last.get('link_width') or '?'}, "
+        f"{'?' if temp is None else temp} °C)"
+    )
 
 
 def format_summary(data: Dict[str, Any]) -> str:
@@ -524,6 +887,8 @@ def format_summary(data: Dict[str, Any]) -> str:
 
     mini = storage.get("mini_ssd", {})
     lines.append(f"Mini SSD Reliability: {mini.get('reliability', 'NOT_QUALIFIED')}")
+    lines.extend(_format_mini_ssd_events(data.get("mini_ssd_events")))
+    lines.append(_format_mini_ssd_telemetry_log(data.get("mini_ssd_telemetry_log")))
 
     lines.extend(["", "--- [5. Thermals & Power] ---"])
     for sensor in data.get("thermal_sensors", []):
