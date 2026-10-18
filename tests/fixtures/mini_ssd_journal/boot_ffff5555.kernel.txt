@@ -1,0 +1,13 @@
+2026-09-11T04:13:20-07:00 superx kernel: nvme 0000:c3:00.0: platform quirk: setting simple suspend
+2026-09-11T04:13:20-07:00 superx kernel: nvme 0000:c4:00.0: platform quirk: setting simple suspend
+2026-09-11T04:13:20-07:00 superx kernel: nvme nvme0: pci function 0000:c3:00.0
+2026-09-11T04:13:20-07:00 superx kernel: nvme nvme1: pci function 0000:c4:00.0
+2026-09-11T04:13:20-07:00 superx kernel: nvme nvme0: allocated 64 MiB host memory buffer (1 segment).
+2026-09-11T04:13:20-07:00 superx kernel: nvme nvme1: allocated 64 MiB host memory buffer (1 segment).
+2026-09-11T04:13:20-07:00 superx kernel: nvme nvme1: 16/0/0 default/read/poll queues
+2026-09-11T04:13:20-07:00 superx kernel:  nvme1n1: p1
+2026-09-11T04:13:21-07:00 superx kernel: nvme nvme1: using unchecked data buffer
+2026-09-11T08:00:03-07:00 superx kernel: PM: suspend entry (s2idle)
+2026-09-11T08:30:11-07:00 superx kernel: PM: suspend exit
+2026-09-11T12:00:00-07:00 superx kernel: PM: suspend entry (s2idle)
+2026-09-11T12:30:11-07:00 superx kernel: PM: suspend exit

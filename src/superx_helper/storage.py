@@ -42,6 +42,61 @@ def rooted(sysfs_root: str, absolute_path: str) -> Path:
     return Path(sysfs_root) / path if sysfs_root else Path("/") / path
 
 
+def read_mini_ssd_telemetry(
+    pci_address: Optional[str], sysfs_root: str = ""
+) -> Dict[str, object]:
+    """Read cheap PCIe and controller-matched hwmon telemetry; never infer health."""
+    data = {
+        "link_speed": None,
+        "link_width": None,
+        "max_link_speed": None,
+        "max_link_width": None,
+        "aspm": {"l1": None, "l1_1": None, "l1_2": None},
+        "temperature_c": None,
+    }
+    if pci_address is None:
+        return data
+
+    def read_text(path: Path) -> Optional[str]:
+        try:
+            return path.read_text().strip() or None
+        except (OSError, UnicodeError):
+            return None
+
+    def read_int(path: Path) -> Optional[int]:
+        try:
+            return int(read_text(path))
+        except (TypeError, ValueError):
+            return None
+
+    pci = rooted(sysfs_root, "/sys/bus/pci/devices") / pci_address
+    data["link_speed"] = read_text(pci / "current_link_speed")
+    data["link_width"] = read_int(pci / "current_link_width")
+    data["max_link_speed"] = read_text(pci / "max_link_speed")
+    data["max_link_width"] = read_int(pci / "max_link_width")
+    data["aspm"] = {
+        name: {"0": False, "1": True}.get(read_text(pci / "link" / f"{name}_aspm"))
+        for name in ("l1", "l1_1", "l1_2")
+    }
+    try:
+        resolved_pci = pci.resolve(strict=True)
+        for hwmon in rooted(sysfs_root, "/sys/class/hwmon").iterdir():
+            if read_text(hwmon / "name") != "nvme":
+                continue
+            try:
+                device = (hwmon / "device").resolve(strict=True)
+            except (OSError, RuntimeError):
+                continue
+            if device.is_relative_to(resolved_pci):
+                temperature = read_int(hwmon / "temp1_input")
+                if temperature is not None:
+                    data["temperature_c"] = round(temperature / 1000.0, 1)
+                    break
+    except (OSError, RuntimeError):
+        pass
+    return data
+
+
 def normalize_pci_id(value: Optional[str]) -> Optional[str]:
     if value is None:
         return None
