@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gtk
+from gi.repository import Adw, GLib, Gtk
 
 from superx_helper.client import ServiceClient
 from superx_helper.contracts import CapabilitySnapshot
@@ -107,12 +107,17 @@ class SuperXWindow(Adw.ApplicationWindow):
         content_box.append(self.view_stack)
         split_box.append(content_box)
 
-        self.toolbar_view.set_content(split_box)
+        # Toast overlay hosts the split layout so write errors can be surfaced
+        self.toast_overlay = Adw.ToastOverlay()
+        self.toast_overlay.set_child(split_box)
+        self.toolbar_view.set_content(self.toast_overlay)
 
         # Instantiate pages defined in ui_manifest.PAGES
         first_row = None
         for spec in PAGES:
             page = self._create_page_instance(spec)
+            if hasattr(page, "set_writer"):
+                page.set_writer(self._apply_capability)
             self.pages[spec.page_id] = page
             self.view_stack.add_titled(page, spec.page_id, spec.title)
 
@@ -172,3 +177,25 @@ class SuperXWindow(Adw.ApplicationWindow):
         for page in self.pages.values():
             if hasattr(page, "update_from_snapshot"):
                 page.update_from_snapshot(snapshot)
+
+    def _toast_overlay(self) -> Adw.ToastOverlay:
+        """Return the toast overlay hosting the window content, wrapping if needed."""
+        overlay = getattr(self, "toast_overlay", None)
+        if overlay is None:
+            overlay = Adw.ToastOverlay()
+            overlay.set_child(self.toolbar_view.get_content() or self.toolbar_view)
+            self.toolbar_view.set_content(overlay)
+            self.toast_overlay = overlay
+        return overlay
+
+    def _apply_capability(self, capability_id: str, value: Any) -> None:
+        """Request a capability write, then re-render from the read-back state."""
+        result = self.client.set_capability(capability_id, value)
+        if not result.success:
+            message = result.error_message or f"Could not update {capability_id}."
+            self._toast_overlay().add_toast(Adw.Toast.new(message))
+        GLib.idle_add(self._refresh_idle)
+
+    def _refresh_idle(self) -> bool:
+        self.refresh()
+        return False

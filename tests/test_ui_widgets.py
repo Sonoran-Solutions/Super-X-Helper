@@ -13,6 +13,7 @@ from superx_helper.contracts import (
     CapabilityRecord,
     CapabilitySnapshot,
     CapabilityStatus,
+    OperationResult,
     SafetyState,
 )
 from superx_helper.ui.pages import (
@@ -41,9 +42,41 @@ from superx_helper.ui_manifest import PAGES, PageSpec
 class MockServiceClient:
     def __init__(self, snapshot: CapabilitySnapshot):
         self.snapshot = snapshot
+        self.set_calls = []
+        self.set_result = None
 
     def get_snapshot(self) -> CapabilitySnapshot:
         return self.snapshot
+
+    def set_capability(self, capability_id: str, value) -> OperationResult:
+        self.set_calls.append((capability_id, value))
+        if self.set_result is not None:
+            return self.set_result
+        return OperationResult(success=True, capability=capability_id, observed_value=value)
+
+
+def writable_record(
+    capability_id: str = CapabilityId.CPU_BOOST.value,
+    label: str = "CPU Boost",
+    observed_value=True,
+    allowed_values=(False, True),
+    minimum=None,
+    maximum=None,
+) -> CapabilityRecord:
+    """Build a CONFIRMED_LOCAL record whose contract reports can_write."""
+    return CapabilityRecord(
+        capability_id=capability_id,
+        label=label,
+        status=CapabilityStatus.CONFIRMED_LOCAL,
+        read_supported=True,
+        write_supported=True,
+        locally_validated=True,
+        write_authorized=True,
+        observed_value=observed_value,
+        allowed_values=list(allowed_values or []),
+        minimum=minimum,
+        maximum=maximum,
+    )
 
 
 def create_real_service_shaped_snapshot(
@@ -520,6 +553,141 @@ class TestUiWidgets(unittest.TestCase):
         self.assertIn("performance", window.pages)
         self.assertIn("cooling", window.pages)
         self.assertIn("storage", window.pages)
+
+    def test_writable_switch_calls_on_set_with_bool(self):
+        record = writable_record()
+        self.assertTrue(record.can_write)
+        calls = []
+        row = CapabilityRow(record, on_set=lambda cid, val: calls.append((cid, val)))
+
+        row.control.set_active(False)
+        self.assertEqual(calls, [(record.capability_id, False)])
+        self.assertIsInstance(calls[0][1], bool)
+
+    def test_writable_dropdown_calls_on_set_with_allowed_value(self):
+        record = writable_record(
+            capability_id=CapabilityId.CPU_EPP.value,
+            label="Energy Performance Preference",
+            observed_value="balance_performance",
+            allowed_values=["default", "performance", "balance_performance", "balance_power", "power"],
+        )
+        self.assertTrue(record.can_write)
+        calls = []
+        row = CapabilityRow(record, on_set=lambda cid, val: calls.append((cid, val)))
+
+        row.control.set_selected(1)
+        self.assertEqual(calls, [(record.capability_id, "performance")])
+
+    def test_writable_scale_flushes_once_with_int(self):
+        record = writable_record(
+            capability_id=CapabilityId.INTERNAL_FAN.value,
+            label="Internal Fan",
+            observed_value=45,
+            allowed_values=[],
+            minimum=0,
+            maximum=100,
+        )
+        self.assertTrue(record.can_write)
+        calls = []
+        row = CapabilityRow(record, on_set=lambda cid, val: calls.append((cid, val)))
+
+        row.control.set_value(62.4)
+        row.control.set_value(63.6)
+        # Debounce coalesces: nothing emitted until the flush runs.
+        self.assertEqual(calls, [])
+        row._flush_scale()
+        self.assertEqual(calls, [(record.capability_id, 64)])
+        self.assertIsInstance(calls[0][1], int)
+
+    def test_constructing_writable_row_does_not_call_on_set(self):
+        calls = []
+        on_set = lambda cid, val: calls.append((cid, val))  # noqa: E731
+        for record in (
+            writable_record(),
+            writable_record(
+                capability_id=CapabilityId.CPU_EPP.value,
+                observed_value="default",
+                allowed_values=["default", "performance"],
+            ),
+            writable_record(
+                capability_id=CapabilityId.INTERNAL_FAN.value,
+                observed_value=45,
+                allowed_values=[],
+                minimum=0,
+                maximum=100,
+            ),
+        ):
+            CapabilityRow(record, on_set=on_set)
+        self.assertEqual(calls, [])
+
+    def test_non_writable_row_ignores_control_changes(self):
+        record = CapabilityRecord(
+            capability_id=CapabilityId.CPU_EPP.value,
+            label="Energy Performance Preference",
+            status=CapabilityStatus.SUPPORTED_UNVERIFIED,
+            read_supported=True,
+            write_supported=True,
+            locally_validated=False,
+            write_authorized=True,
+            observed_value="balance_performance",
+            allowed_values=["default", "performance", "balance_performance"],
+        )
+        self.assertFalse(record.can_write)
+        calls = []
+        row = CapabilityRow(record, on_set=lambda cid, val: calls.append((cid, val)))
+
+        row.control.set_selected(1)
+        row._flush_scale()
+        self.assertEqual(calls, [])
+
+    def test_base_page_set_writer_propagates_to_rows(self):
+        record = writable_record()
+        snapshot = CapabilitySnapshot(
+            schema_version=1,
+            generated_at="2026-09-06T23:00:00Z",
+            capabilities=[record],
+        )
+        calls = []
+        page = BasePage(PageSpec("performance", "Performance", [record.capability_id]))
+        page.set_writer(lambda cid, val: calls.append((cid, val)))
+        page.update_from_snapshot(snapshot)
+
+        rows = []
+
+        def walk(widget):
+            if isinstance(widget, CapabilityRow):
+                rows.append(widget)
+            child = widget.get_first_child()
+            while child:
+                walk(child)
+                child = child.get_next_sibling()
+
+        walk(page.group)
+        self.assertEqual(len(rows), 1)
+        self.assertIs(rows[0].on_set, page.on_set)
+
+        rows[0].control.set_active(False)
+        self.assertEqual(calls, [(record.capability_id, False)])
+
+    def test_window_wires_writer_and_applies_capability(self):
+        app = Adw.Application(application_id="org.sonoran.SuperXHelper.TestWriter")
+        app.register()
+        snapshot = create_real_service_shaped_snapshot()
+        client = MockServiceClient(snapshot)
+        window = SuperXWindow(app, client)
+
+        self.assertIsNotNone(window.pages["performance"].on_set)
+        window._apply_capability(CapabilityId.CPU_BOOST.value, False)
+        self.assertEqual(client.set_calls, [(CapabilityId.CPU_BOOST.value, False)])
+
+        # Failure surfaces a toast instead of silently swallowing the error.
+        client.set_result = OperationResult(
+            success=False,
+            capability=CapabilityId.CPU_BOOST.value,
+            error_message="Write rejected by backend",
+        )
+        window._apply_capability(CapabilityId.CPU_BOOST.value, True)
+        self.assertIsNotNone(getattr(window, "toast_overlay", None))
 
     def test_repeated_refresh_cycle(self):
         """Verify window and pages survive repeated refreshes without widget accumulation or error."""

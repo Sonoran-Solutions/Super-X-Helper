@@ -16,6 +16,8 @@ from superx_helper.contracts import (
     SafetyState,
 )
 from superx_helper.platform import PlatformBackend
+from superx_helper.policy import LOCALLY_VALIDATED_WRITES, OWNER_ROUTED_WRITES
+from superx_helper.session_owners import GsdBrightnessOwner, PowerProfilesOwner
 from superx_helper.storage import read_mini_ssd_telemetry
 
 
@@ -43,11 +45,17 @@ class SuperXService:
         self,
         platform: Optional[PlatformBackend] = None,
         validated_writes: Optional[Iterable[str]] = None,
+        power_profiles: Optional[PowerProfilesOwner] = None,
+        brightness_owner: Optional[GsdBrightnessOwner] = None,
     ):
-        self.validated_writes: Set[str] = set(validated_writes or [])
-        self.platform = platform or PlatformBackend(
-            authorized_writes=self.validated_writes
+        self.validated_writes: Set[str] = set(
+            LOCALLY_VALIDATED_WRITES if validated_writes is None else validated_writes
         )
+        self.platform = platform or PlatformBackend(
+            authorized_writes=self.validated_writes - OWNER_ROUTED_WRITES
+        )
+        self.power_profiles = power_profiles if power_profiles is not None else PowerProfilesOwner()
+        self.brightness_owner = brightness_owner if brightness_owner is not None else GsdBrightnessOwner()
 
     def _write_authorized(self, capability_id: CapabilityId) -> bool:
         return capability_id.value in self.validated_writes
@@ -90,7 +98,9 @@ class SuperXService:
             return self.platform.set_cpu_boost(value)
 
         if cid == CapabilityId.CPU_EPP:
-            return self.platform.set_epp(str(value))
+            if self.power_profiles.read() is None:
+                return OperationResult(False, cid.value, value, error_message="power-profiles-daemon unavailable; sysfs EPP writes are not an authorized path.")
+            return self.power_profiles.set(value)
 
         if cid == CapabilityId.INTERNAL_FAN:
             try:
@@ -105,16 +115,9 @@ class SuperXService:
             return self.platform.set_fan_duty(duty)
 
         if cid == CapabilityId.DISPLAY_BRIGHTNESS:
-            try:
-                percent = float(value)
-            except (TypeError, ValueError):
-                return OperationResult(
-                    success=False,
-                    capability=cid.value,
-                    target_value=value,
-                    error_message="Display Brightness expects a numeric percentage.",
-                )
-            return self.platform.set_display_brightness_percent(percent)
+            if self.brightness_owner.read() in (None, -1):
+                return OperationResult(False, cid.value, value, error_message="gnome-settings-daemon brightness unavailable; sysfs brightness writes are not an authorized path.")
+            return self.brightness_owner.set(value)
 
         return OperationResult(
             success=False,
@@ -150,6 +153,8 @@ class SuperXService:
             display=display,
             storage=storage,
             validated_writes=self.validated_writes,
+            power_profiles=self.power_profiles,
+            brightness_owner=self.brightness_owner,
         )
         return CapabilitySnapshot(
             schema_version=1,
@@ -166,6 +171,8 @@ def build_capability_records(
     display: Optional[Dict[str, object]] = None,
     storage: Optional[Dict[str, object]] = None,
     validated_writes: Optional[Iterable[str]] = None,
+    power_profiles: Optional[PowerProfilesOwner] = None,
+    brightness_owner: Optional[GsdBrightnessOwner] = None,
 ):
     validated = set(validated_writes or [])
     battery = battery or {}
@@ -198,22 +205,49 @@ def build_capability_records(
     else:
         records.append(_unavailable(CapabilityId.CPU_BOOST, "CPU Boost", "cpufreq boost interface not present."))
 
-    if low.has_epp_control:
+    active_profile = power_profiles.read() if power_profiles is not None else None
+    if active_profile is not None:
+        epp_authorized = authorized(CapabilityId.CPU_EPP)
+        epp = platform.read_epp()
+        warnings = [f"Drives amd-pstate EPP (currently {epp})."] if epp is not None else []
+        owner_status = power_profiles.status()
+        for prop in ("PerformanceDegraded", "PerformanceInhibited", "ActiveProfileHolds"):
+            if owner_status.get(prop):
+                warnings.append(f"power-profiles-daemon {prop}: {owner_status[prop]}")
+        records.append(
+            CapabilityRecord(
+                CapabilityId.CPU_EPP.value,
+                "Power Profile (EPP)",
+                CapabilityStatus.CONFIRMED_LOCAL if epp_authorized else CapabilityStatus.SUPPORTED_UNVERIFIED,
+                read_supported=True,
+                write_supported=True,
+                locally_validated=epp_authorized,
+                observed_value=active_profile,
+                allowed_values=power_profiles.profiles(),
+                owner="power-profiles-daemon",
+                backend="power_profiles",
+                write_authorized=epp_authorized,
+                reason_unavailable=None if epp_authorized else "Power profile writes have not passed local production validation.",
+                warnings=warnings,
+                safety_state=SafetyState.WARNING if not epp_authorized or any(owner_status.values()) else SafetyState.NORMAL,
+            )
+        )
+    elif low.has_epp_control:
         records.append(
             CapabilityRecord(
                 CapabilityId.CPU_EPP.value,
                 "Energy Performance Preference",
-                CapabilityStatus.CONFIRMED_LOCAL if authorized(CapabilityId.CPU_EPP) else CapabilityStatus.SUPPORTED_UNVERIFIED,
+                CapabilityStatus.SUPPORTED_UNVERIFIED,
                 read_supported=True,
                 write_supported=True,
-                locally_validated=authorized(CapabilityId.CPU_EPP),
+                locally_validated=False,
                 observed_value=platform.read_epp(),
                 allowed_values=low.epp_available_preferences,
                 owner="amd-pstate-epp",
                 backend="platform",
-                write_authorized=authorized(CapabilityId.CPU_EPP),
-                reason_unavailable=None if authorized(CapabilityId.CPU_EPP) else "Read path is confirmed; write behavior has not passed local production validation.",
-                safety_state=SafetyState.NORMAL if authorized(CapabilityId.CPU_EPP) else SafetyState.WARNING,
+                write_authorized=False,
+                reason_unavailable="power-profiles-daemon unavailable; sysfs EPP writes are not an authorized path.",
+                safety_state=SafetyState.WARNING,
             )
         )
     else:
@@ -279,7 +313,8 @@ def build_capability_records(
     else:
         records.append(_unavailable(CapabilityId.INTERNAL_FAN, "Internal Fan", "oxpec fan interface not detected."))
 
-    if low.has_backlight_control:
+    brightness = brightness_owner.read() if brightness_owner is not None else None
+    if brightness is not None and brightness != -1:
         bright_authorized = authorized(CapabilityId.DISPLAY_BRIGHTNESS)
         records.append(
             CapabilityRecord(
@@ -289,15 +324,35 @@ def build_capability_records(
                 read_supported=True,
                 write_supported=True,
                 locally_validated=bright_authorized,
+                observed_value=brightness,
+                minimum=5,
+                maximum=100,
+                unit="%",
+                owner="gnome-settings-daemon",
+                backend="session_brightness",
+                write_authorized=bright_authorized,
+                reason_unavailable=None if bright_authorized else "Session brightness writes have not passed local production validation.",
+                safety_state=SafetyState.NORMAL if bright_authorized else SafetyState.WARNING,
+            )
+        )
+    elif low.has_backlight_control:
+        records.append(
+            CapabilityRecord(
+                CapabilityId.DISPLAY_BRIGHTNESS.value,
+                "Display Brightness",
+                CapabilityStatus.SUPPORTED_UNVERIFIED,
+                read_supported=True,
+                write_supported=True,
+                locally_validated=False,
                 observed_value=platform.read_display_brightness_percent(),
                 minimum=0,
                 maximum=100,
                 unit="%",
                 owner="amdgpu backlight",
                 backend="platform",
-                write_authorized=bright_authorized,
-                reason_unavailable=None if bright_authorized else "Brightness telemetry is confirmed; direct write behavior has not passed production validation.",
-                safety_state=SafetyState.NORMAL if bright_authorized else SafetyState.WARNING,
+                write_authorized=False,
+                reason_unavailable="gnome-settings-daemon brightness unavailable; sysfs brightness writes are not an authorized path.",
+                safety_state=SafetyState.WARNING,
             )
         )
     else:

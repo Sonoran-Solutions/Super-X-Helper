@@ -2,7 +2,7 @@ from pathlib import Path
 import shutil
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import gi
 gi.require_version("Gtk", "4.0")
@@ -73,7 +73,11 @@ class MiniSsdTelemetryTests(unittest.TestCase):
         with patch("superx_helper.service.get_battery_info", return_value={}), patch(
             "superx_helper.service.get_display_info", return_value={}
         ):
-            return SuperXService(platform=PlatformBackend(sysfs_root=str(self.root))).get_capability_snapshot()
+            return SuperXService(
+                platform=PlatformBackend(sysfs_root=str(self.root)),
+                power_profiles=Mock(read=Mock(return_value=None)),
+                brightness_owner=Mock(read=Mock(return_value=None)),
+            ).get_capability_snapshot()
 
     def test_telemetry_matches_mini_pci_not_internal_ssd(self):
         self.assertEqual(self.telemetry(), {

@@ -114,3 +114,23 @@ Current sequencing after the 2026-09-22 upstream refresh:
 3. Perform single-step reversible write validation: **EPP → CPU boost → brightness**, each with before/read-back/restore/verify, before any fan write.
 4. Fan write only after step 2 confirms `oxp_ec` semantics and a tested path back to firmware/EC ownership; never test zero duty, disable thermal protection, or pair first-time fan validation with increased TDP.
 5. Keep Frost Bay locally `RESEARCH_PENDING`, but when that track begins reproduce the published FFE0/FFE1 BlueZ path rather than repeating protocol archaeology. Mini SSD remains `NOT_QUALIFIED` pending its separate fault-isolation track.
+
+---
+
+## 2026-10-19 addendum — first production-qualified writes (unprivileged owners)
+
+Root was not needed. The two ordinary controls with a maintained unprivileged owner now write through that owner, not sysfs (`src/superx_helper/session_owners.py`). Evidence captured live on this host (kernel 7.0.0-38, uid 1000), each as before → set → read-back → restore → verify:
+
+| Capability | Owner / interface | Before | Set | Read-back | Restore | Final |
+|---|---|---|---|---|---|---|
+| `performance.epp` | power-profiles-daemon 0.21, system bus `net.hadess.PowerProfiles.ActiveProfile` | `balanced` (sysfs EPP `balance_performance`) | `power-saver` (sysfs EPP → `power`) | `power-saver` | `balanced` (sysfs EPP → `balance_performance`) | `balanced` |
+| `display.brightness` | GNOME Settings Daemon, session bus `org.gnome.SettingsDaemon.Power.Screen.Brightness` | 93 % (sysfs requested 460697 / actual 433882) | 78 % (sysfs requested 387189 / actual 325176) | 78 | 93 % (sysfs 460697 / 433882) | 93 |
+
+Observations:
+- ppd drove the real `amd-pstate` EPP: the sysfs value followed the profile and returned to its original value, confirming the owner path is effective, not just a property echo.
+- Brightness read-back was exact (percent). The requested-vs-actual raw gap on `amdgpu_bl1` (93.1 % vs 87.7 %) is pre-existing and unchanged by restore; it is a panel/ABM effect, not a write failure.
+- Guards: brightness has a 5 % floor and rejects bool/non-integer input; profile must be one the owner advertises; success requires exact read-back. If an owner disappears the service refuses the write and never falls back to sysfs.
+- `PlatformBackend` is deliberately NOT authorized for these ids (`policy.OWNER_ROUTED_WRITES`).
+- Warning surfaced in the record: ppd `PerformanceDegraded` / `PerformanceInhibited` / holds are shown when non-empty. Another client (e.g. the GNOME quick-settings profile) may change the profile at any time; the UI re-renders from read-back after every write.
+- Still NOT qualified: CPU boost (no userspace owner; root sysfs), internal fan (no oxpec Super X quirk on 7.0.0-38), power target.
+- Not exercised: the `performance` profile (power-increasing; skipped on purpose, pair it with fan validation later).

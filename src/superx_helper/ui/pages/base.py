@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import gi
 gi.require_version("Gtk", "4.0")
@@ -20,6 +20,7 @@ class BasePage(Adw.PreferencesPage):
     def __init__(self, spec: PageSpec):
         super().__init__()
         self.spec = spec
+        self.on_set: Optional[Callable[[str, Any], None]] = None
         self.set_title(spec.title)
 
         # Container for dynamic content
@@ -29,6 +30,10 @@ class BasePage(Adw.PreferencesPage):
 
         self.warnings_group = Adw.PreferencesGroup()
         self.add(self.warnings_group)
+
+    def set_writer(self, callback: Callable[[str, Any], None]) -> None:
+        """Register the callback used by writable rows to apply a new value."""
+        self.on_set = callback
 
     def update_from_snapshot(self, snapshot: CapabilitySnapshot) -> None:
         """Rebuild rows based on latest capability snapshot."""
@@ -51,7 +56,7 @@ class BasePage(Adw.PreferencesPage):
 
         # Populate rows
         for record in page_caps:
-            row = CapabilityRow(record)
+            row = CapabilityRow(record, on_set=self.on_set)
             self.group.add(row)
 
             # Display any specific warnings
