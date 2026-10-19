@@ -10,7 +10,10 @@ from superx_helper.contracts import (
 )
 from superx_helper.service import SuperXService, coerce_capability_id
 from superx_helper.session_owners import GsdBrightnessOwner, PowerProfilesOwner
-from test_session_owners import FakeBus
+try:  # package-relative under `-m unittest tests.x`, bare under `discover -s tests`
+    from .fake_bus import FakeBus
+except ImportError:
+    from fake_bus import FakeBus
 from superx_helper.transport import (
     operation_result_from_dict,
     snapshot_from_dict,
@@ -177,6 +180,23 @@ class PolicyWiringTests(unittest.TestCase):
         )
         self.assertEqual(real.platform.authorized_writes, set())
         self.assertFalse(real.platform.is_write_authorized("performance.epp"))
+
+class ProfileWarningTests(unittest.TestCase):
+    def test_performance_profile_not_validated_warning(self):
+        from superx_helper.capabilities import PlatformCapabilities
+        from superx_helper.service import build_capability_records
+        from unittest.mock import Mock
+
+        bus = FakeBus()
+        records = build_capability_records(
+            PlatformCapabilities(),
+            Mock(read_epp=Mock(return_value="balance_performance")),
+            power_profiles=PowerProfilesOwner(bus),
+            validated_writes={"performance.epp"},
+        )
+        epp = next(r for r in records if r.capability_id == "performance.epp")
+        self.assertTrue(any("'performance' profile has not been locally validated" in w for w in epp.warnings))
+
 
 
 if __name__ == "__main__":

@@ -210,6 +210,9 @@ def build_capability_records(
         epp_authorized = authorized(CapabilityId.CPU_EPP)
         epp = platform.read_epp()
         warnings = [f"Drives amd-pstate EPP (currently {epp})."] if epp is not None else []
+        warnings.append(
+            "The 'performance' profile has not been locally validated; only power-saver and balanced were exercised."
+        )
         owner_status = power_profiles.status()
         for prop in ("PerformanceDegraded", "PerformanceInhibited", "ActiveProfileHolds"):
             if owner_status.get(prop):

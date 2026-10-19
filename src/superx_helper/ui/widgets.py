@@ -222,6 +222,8 @@ class CapabilityRow(Adw.ActionRow):
         self.on_set = on_set
         self._scale_source_id: Optional[int] = None
         self.set_title(record.label)
+        # A refresh can rebuild this row while a debounced write is still armed.
+        self.connect("unrealize", lambda _row: self._cancel_scale())
 
         connect_control = record.can_write and on_set is not None
 
@@ -241,6 +243,15 @@ class CapabilityRow(Adw.ActionRow):
 
         if record.allowed_values and not record.can_write and not has_dropdown:
             sub_parts.append(f"Allowed: {', '.join(str(v) for v in record.allowed_values)}")
+
+        # The slider clamps to its range, so say so when the observed value is outside it.
+        if (
+            record.minimum is not None
+            and isinstance(record.observed_value, (int, float))
+            and not isinstance(record.observed_value, bool)
+            and record.observed_value < record.minimum
+        ):
+            sub_parts.append(f"Slider floor {record.minimum:g} {record.unit or ''}".rstrip())
 
         self.set_subtitle(" • ".join(sub_parts))
 
@@ -314,10 +325,15 @@ class CapabilityRow(Adw.ActionRow):
             return
         self._emit_set(values[index])
 
-    def _on_scale_value_changed(self, scale: Gtk.Scale) -> None:
-        """Coalesce rapid scale drags into a single write."""
+    def _cancel_scale(self) -> None:
+        """Drop a pending debounced write (row torn down or superseded)."""
         if self._scale_source_id is not None:
             GLib.source_remove(self._scale_source_id)
+            self._scale_source_id = None
+
+    def _on_scale_value_changed(self, scale: Gtk.Scale) -> None:
+        """Coalesce rapid scale drags into a single write."""
+        self._cancel_scale()
         self._scale_source_id = GLib.timeout_add(self.SCALE_DEBOUNCE_MS, self._flush_scale)
 
     def _flush_scale(self) -> bool:

@@ -174,6 +174,8 @@ Audit Loadout's TDP strategy and current Linux/HHD options before selecting a ba
 
 Install only after at least one write capability has passed local validation.
 
+Follow-up (from PR 23 review): `SuperXWindow._apply_capability` calls the service synchronously on the GTK main thread, and the brightness read-back poll can sleep up to ~1 s. When this boundary lands, make the client call async and keep the poll in the service.
+
 ## SX-UI-002 · Dashboard polish — P1
 
 Current read-only Dashboard exists. Continue from it; do not rebuild the shell.
