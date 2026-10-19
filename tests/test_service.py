@@ -9,6 +9,8 @@ from superx_helper.contracts import (
     SafetyState,
 )
 from superx_helper.service import SuperXService, coerce_capability_id
+from superx_helper.session_owners import GsdBrightnessOwner, PowerProfilesOwner
+from test_session_owners import FakeBus
 from superx_helper.transport import (
     operation_result_from_dict,
     snapshot_from_dict,
@@ -39,7 +41,11 @@ class FakePlatform:
 
 class ServiceMutationTests(unittest.TestCase):
     def _service(self, validated=()):
-        return SuperXService(platform=FakePlatform(), validated_writes=validated)
+        bus = FakeBus()
+        return SuperXService(
+            platform=FakePlatform(), validated_writes=validated,
+            power_profiles=PowerProfilesOwner(bus), brightness_owner=GsdBrightnessOwner(bus),
+        )
 
     def test_coerce_capability_id(self):
         self.assertEqual(coerce_capability_id("performance.cpu_boost"), CapabilityId.CPU_BOOST)
@@ -63,16 +69,20 @@ class ServiceMutationTests(unittest.TestCase):
     def test_authorized_dispatches_typed_operations(self):
         cases = [
             (CapabilityId.CPU_BOOST.value, True),
-            (CapabilityId.CPU_EPP.value, "balance_power"),
+            (CapabilityId.CPU_EPP.value, "power-saver"),
             (CapabilityId.INTERNAL_FAN.value, 42),
-            (CapabilityId.DISPLAY_BRIGHTNESS.value, 55.5),
+            (CapabilityId.DISPLAY_BRIGHTNESS.value, 55.0),
         ]
         for capability_id, value in cases:
             with self.subTest(capability_id=capability_id):
                 service = self._service(validated={capability_id})
                 result = service.set_capability(capability_id, value)
                 self.assertTrue(result.success)
-                self.assertEqual(service.platform.calls, [(capability_id, value)])
+                if capability_id in (CapabilityId.CPU_EPP.value, CapabilityId.DISPLAY_BRIGHTNESS.value):
+                    self.assertEqual(service.platform.calls, [])
+                    self.assertEqual(result.observed_value, value)
+                else:
+                    self.assertEqual(service.platform.calls, [(capability_id, value)])
 
     def test_boost_requires_boolean(self):
         service = self._service(validated={CapabilityId.CPU_BOOST.value})
@@ -147,6 +157,26 @@ class TransportTests(unittest.TestCase):
         self.assertEqual(rebuilt.capability, CapabilityId.INTERNAL_FAN.value)
         self.assertEqual(rebuilt.target_value, 50)
         self.assertIn("Refusing fan-duty write", rebuilt.error_message)
+
+
+class PolicyWiringTests(unittest.TestCase):
+    def test_default_policy_authorizes_owner_writes_not_sysfs(self):
+        from unittest.mock import Mock
+        bus = FakeBus()
+        service = SuperXService(
+            platform=Mock(authorized_writes=set()),
+            power_profiles=PowerProfilesOwner(bus),
+            brightness_owner=GsdBrightnessOwner(bus),
+        )
+        self.assertEqual(
+            service.validated_writes, {"performance.epp", "display.brightness"}
+        )
+        from superx_helper.platform import PlatformBackend
+        real = SuperXService(
+            power_profiles=PowerProfilesOwner(bus), brightness_owner=GsdBrightnessOwner(bus)
+        )
+        self.assertEqual(real.platform.authorized_writes, set())
+        self.assertFalse(real.platform.is_write_authorized("performance.epp"))
 
 
 if __name__ == "__main__":

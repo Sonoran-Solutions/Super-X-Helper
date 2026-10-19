@@ -26,7 +26,7 @@ Every feature is represented by a `CapabilityRecord` containing:
 - `locally_validated`;
 - `observed_value`;
 - `desired_value`;
-- `allowed_values` and/or numeric range/unit;
+- `allowed_values` and/or numeric range/unit (when power-profiles-daemon owns the host, `performance.epp` carries power-profile names such as `power-saver`/`balanced`/`performance` in `allowed_values`, not raw EPP strings);
 - `owner` and backend;
 - `reason_unavailable`;
 - warnings;

@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gtk, Pango
+from gi.repository import Adw, GLib, Gtk, Pango
 
 from superx_helper.contracts import (
     CapabilityId,
@@ -202,12 +202,28 @@ class SafetyBanner(Gtk.Box):
 
 
 class CapabilityRow(Adw.ActionRow):
-    """Standard Libadwaita row rendering a single CapabilityRecord."""
+    """Standard Libadwaita row rendering a single CapabilityRecord.
 
-    def __init__(self, record: CapabilityRecord):
+    When ``record.can_write`` and an ``on_set`` callback are both present, the
+    row control is wired to ``on_set(capability_id, value)``.  Signals are
+    connected only after the initial value is applied, so building a row never
+    emits a write.  Writability is derived exclusively from the contract.
+    """
+
+    SCALE_DEBOUNCE_MS = 400
+
+    def __init__(
+        self,
+        record: CapabilityRecord,
+        on_set: Optional[Callable[[str, Any], None]] = None,
+    ):
         super().__init__()
         self.record = record
+        self.on_set = on_set
+        self._scale_source_id: Optional[int] = None
         self.set_title(record.label)
+
+        connect_control = record.can_write and on_set is not None
 
         # Construct subtitle using capability-aware formatting
         sub_parts = []
@@ -243,7 +259,10 @@ class CapabilityRow(Adw.ActionRow):
                     sw.set_tooltip_text(
                         "Hardware writes are disabled: capability is unverified/unauthorized in this phase."
                     )
+                if connect_control:
+                    sw.connect("notify::active", self._on_switch_active)
                 self.add_suffix(sw)
+                self.control = sw
             elif record.minimum is not None and record.maximum is not None:
                 scale = Gtk.Scale.new_with_range(
                     Gtk.Orientation.HORIZONTAL, record.minimum, record.maximum, 1.0
@@ -257,7 +276,10 @@ class CapabilityRow(Adw.ActionRow):
                     scale.set_tooltip_text(
                         "Control is read-only: writes are disabled pending local validation."
                     )
+                if connect_control:
+                    scale.connect("value-changed", self._on_scale_value_changed)
                 self.add_suffix(scale)
+                self.control = scale
             elif has_dropdown:
                 # Multiple discrete allowed values (e.g. EPP preferences)
                 str_items = [str(v) for v in record.allowed_values]
@@ -271,7 +293,41 @@ class CapabilityRow(Adw.ActionRow):
                     drop_down.set_tooltip_text(
                         "Control is read-only: writes are disabled pending local validation."
                     )
+                if connect_control:
+                    drop_down.connect("notify::selected", self._on_dropdown_selected)
                 self.add_suffix(drop_down)
+                self.control = drop_down
+
+    def _emit_set(self, value: Any) -> None:
+        """Forward a user-originated value, skipping no-op writes."""
+        if self.on_set is None or value == self.record.observed_value:
+            return
+        self.on_set(self.record.capability_id, value)
+
+    def _on_switch_active(self, switch: Gtk.Switch, _pspec) -> None:
+        self._emit_set(bool(switch.get_active()))
+
+    def _on_dropdown_selected(self, drop_down: Gtk.DropDown, _pspec) -> None:
+        index = drop_down.get_selected()
+        values = self.record.allowed_values
+        if index == Gtk.INVALID_LIST_POSITION or index >= len(values):
+            return
+        self._emit_set(values[index])
+
+    def _on_scale_value_changed(self, scale: Gtk.Scale) -> None:
+        """Coalesce rapid scale drags into a single write."""
+        if self._scale_source_id is not None:
+            GLib.source_remove(self._scale_source_id)
+        self._scale_source_id = GLib.timeout_add(self.SCALE_DEBOUNCE_MS, self._flush_scale)
+
+    def _flush_scale(self) -> bool:
+        """Emit the pending scale write once.  Returns False to drop the source."""
+        self._scale_source_id = None
+        scale = getattr(self, "control", None)
+        if not isinstance(scale, Gtk.Scale):
+            return False
+        self._emit_set(int(round(scale.get_value())))
+        return False
 
 
 _RESEARCH_PENDING_FALLBACK = (
