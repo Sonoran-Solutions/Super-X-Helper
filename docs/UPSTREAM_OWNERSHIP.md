@@ -33,6 +33,8 @@
 
 Reference: [srsholmes/loadout](https://github.com/srsholmes/loadout)
 
+**Audit COMPLETE — 2026-10-18:** [LOADOUT_AUDIT.md](LOADOUT_AUDIT.md) reviews commit `ac60b8030642d2a0249160ab4be555b061d206f1`, maps adaptation/safety gaps, and defines local qualification criteria. No hardware writes are authorized by the audit.
+
 Loadout is not a drop-in replacement for Super X Helper. It targets Linux gaming handhelds with a root-backed plugin service and Gaming Mode/desktop UI, while this project is Ubuntu-native GTK with a typed capability contract. It is, however, mature enough that ignoring it would waste engineering effort.
 
 ### Relevant proven design work

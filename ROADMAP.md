@@ -122,7 +122,9 @@ The shell, navigation, Dashboard, and read-only page skeletons are already imple
 
 Fresh baseline captured and UI/service boundary corrected. See docs/LIVE_INTEGRATION_HANDOFF.md.
 
-## SX-UPSTREAM-001 · Audit Loadout before production fan/TDP work — P0 / NEXT
+## SX-UPSTREAM-001 · Audit Loadout before production fan/TDP work — COMPLETE
+
+Completed 2026-10-18: [docs/LOADOUT_AUDIT.md](docs/LOADOUT_AUDIT.md). Pinned source audit, adaptation plan, licensing inventory, and fan qualification criteria recorded; local write validation remains open.
 
 Review [srsholmes/loadout](https://github.com/srsholmes/loadout), especially:
 
@@ -213,7 +215,7 @@ Compact second GTK window using the same ServiceClient; reuse maintained input o
 - [x] trustworthy diagnostic/capability foundation
 - [x] refreshed live diagnostic snapshot
 - [x] GTK application shell and read-only pages
-- [ ] Loadout fan/TDP upstream audit completed
+- [x] Loadout fan/TDP upstream audit completed
 - [ ] CPU/performance writes locally validated — EPP via power-profiles-daemon DONE 2026-10-18; CPU boost (root sysfs) still pending
 - [ ] internal fan path locally validated with ownership recovery
 - [x] display writes enabled only where proven — brightness via GNOME Settings Daemon, 2026-10-18
