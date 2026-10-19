@@ -117,7 +117,7 @@ Current sequencing after the 2026-09-22 upstream refresh:
 
 ---
 
-## 2026-10-19 addendum — first production-qualified writes (unprivileged owners)
+## 2026-10-18 addendum — first production-qualified writes (unprivileged owners)
 
 Root was not needed. The two ordinary controls with a maintained unprivileged owner now write through that owner, not sysfs (`src/superx_helper/session_owners.py`). Evidence captured live on this host (kernel 7.0.0-38, uid 1000), each as before → set → read-back → restore → verify:
 

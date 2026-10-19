@@ -157,9 +157,9 @@ Loadout's fan backend is a reference for failure handling, not proof that this S
 
 Perform one reversible capability at a time with before/read-back/restore evidence:
 
-1. EPP — DONE via power-profiles-daemon (unprivileged owner), 2026-10-19
+1. EPP — DONE via power-profiles-daemon (unprivileged owner), 2026-10-18
 2. CPU boost — pending, root sysfs (no userspace owner)
-3. brightness — DONE via GNOME Settings Daemon, 2026-10-19
+3. brightness — DONE via GNOME Settings Daemon, 2026-10-18
 4. internal fan after SX-CORE-002
 
 No power increase should be paired with first-time fan validation.
@@ -214,9 +214,9 @@ Compact second GTK window using the same ServiceClient; reuse maintained input o
 - [x] refreshed live diagnostic snapshot
 - [x] GTK application shell and read-only pages
 - [ ] Loadout fan/TDP upstream audit completed
-- [ ] CPU/performance writes locally validated — EPP via power-profiles-daemon DONE 2026-10-19; CPU boost (root sysfs) still pending
+- [ ] CPU/performance writes locally validated — EPP via power-profiles-daemon DONE 2026-10-18; CPU boost (root sysfs) still pending
 - [ ] internal fan path locally validated with ownership recovery
-- [x] display writes enabled only where proven — brightness via GNOME Settings Daemon, 2026-10-19
+- [x] display writes enabled only where proven — brightness via GNOME Settings Daemon, 2026-10-18
 - [ ] battery telemetry and any supported controls
 - [ ] declarative profiles
 - [ ] quick-access workflow

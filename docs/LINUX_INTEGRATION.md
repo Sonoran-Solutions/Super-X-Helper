@@ -13,14 +13,14 @@ The existing baseline was captured on an ONEXPLAYER Super X running Ubuntu 24.04
 | Capability | Interface/project | Evidence level | Current application behavior |
 |---|---|---|---|
 | CPU boost state | `/sys/devices/system/cpu/cpufreq/boost` | locally observed read path | `SUPPORTED_UNVERIFIED`; writes disabled until validated |
-| EPP state | power-profiles-daemon; `amd-pstate-epp` telemetry fallback | locally observed sysfs read path; owner adapter pending live write validation | owner profiles exposed when available; sysfs fallback never authorizes writes |
+| EPP state | power-profiles-daemon; `amd-pstate-epp` telemetry fallback | **write locally validated through ppd** (set/read-back/restore, 2026-10-18; sysfs EPP followed the profile) | `CONFIRMED_LOCAL`, `can_write` via ppd only; sysfs fallback never authorizes writes |
 | Package power telemetry / target | powercap/RAPL locally; Loadout TDP and HHD are upstream references | telemetry observed; write mechanism not selected | read/inventory only; audit upstream before selecting a production write adapter |
 | Internal fan | `oxpec` / `oxp_ec` hwmon; Loadout fan-control as userspace reference | module installed but **no Super X DMI quirk** in this kernel; live module not loaded and would not bind | `SUPPORTED_UNVERIFIED`; audit upstream safety/ownership logic before implementing curves |
 | Battery telemetry | power_supply; Loadout battery plugin is an upstream control reference | locally observed telemetry; control not locally proven | `READ_ONLY` |
 | Charge limit/bypass | unresolved | not exposed by the captured standard battery interface | `UNAVAILABLE` |
 | Thermals | hwmon (`k10temp`, `amdgpu`, `nvme`) | locally observed | `READ_ONLY` |
 | Display mode | DRM | locally observed | `READ_ONLY` until compositor mutation path is selected |
-| Brightness | GNOME Settings Daemon session owner; amdgpu backlight telemetry fallback | locally observed sysfs read path; owner adapter pending live write validation | owner percentage exposed when available; 5% write floor; sysfs fallback never authorizes writes |
+| Brightness | GNOME Settings Daemon session owner; amdgpu backlight telemetry fallback | **write locally validated through GNOME Settings Daemon** (set/read-back/restore, 2026-10-18; sysfs raw value restored byte-identical) | `CONFIRMED_LOCAL`, `can_write` via the session owner only; 5% write floor; sysfs fallback never authorizes writes |
 | Controller/gyro | kernel/HHD/InputPlumber/Steam | device/input stack exists; integration API not selected | external integration follow-up |
 | RGB | Loadout/OpenRGB/HHD are upstream references | no local control path selected | unavailable/follow-up; audit maintained implementations first |
 | Bluetooth adapter | MediaTek/BlueZ | locally observed `hci0` | safe passive inventory available |
@@ -46,13 +46,15 @@ write is production-authorized
 
 The UI consumes `CapabilityRecord.can_write`. No control becomes interactive merely because a sysfs file is writable.
 
-EPP and brightness now use fresh D-Bus properties from the existing desktop
-owners when available: power-profiles-daemon on the system bus and GNOME Settings
-Daemon Power on the session bus. Authorization still defaults to empty; this
-adapter change provides no live set/read-back/restore evidence. Record that
-evidence in `docs/LIVE_INTEGRATION_HANDOFF.md` before adding policy entries.
-If either owner disappears (or GNOME reports no backlight), the service refuses
-the write and exposes only the available sysfs telemetry.
+EPP and brightness use fresh D-Bus properties from the existing desktop
+owners: power-profiles-daemon on the system bus and GNOME Settings Daemon Power
+on the session bus. Live set/read-back/restore evidence for both was recorded on
+the development Super X (see the 2026-10-18 addendum in
+`docs/LIVE_INTEGRATION_HANDOFF.md`), and `policy.LOCALLY_VALIDATED_WRITES`
+authorizes both ids **through their owners only** (`OWNER_ROUTED_WRITES` keeps
+the sysfs `PlatformBackend` unauthorized for them). If either owner disappears
+(or GNOME reports no backlight), the service refuses the write and exposes only
+the available sysfs telemetry.
 
 ## Passive diagnostics
 
@@ -74,8 +76,9 @@ Before enabling ordinary writes in the UI:
 - [ ] complete the Loadout fan/TDP upstream audit in `SX-UPSTREAM-001` before writing a second generic control stack;
 - [ ] update/backport `oxpec` to a kernel containing the Super X quirk, then load it under root and inventory the `oxp_ec` hwmon attributes;
 - [ ] validate safe fan read/manual/auto behavior plus tested recovery to firmware/EC ownership, using upstream failure-handling patterns where appropriate;
-- [ ] validate power-profiles-daemon profile set/read-back/restore in the active session, and validate CPU boost separately under root;
-- [ ] validate GNOME Settings Daemon brightness set/read-back/restore in the active session (note the requested-vs-actual gap on `amdgpu_bl1`);
+- [x] validate power-profiles-daemon profile set/read-back/restore in the active session (2026-10-18);
+- [ ] validate CPU boost separately under root;
+- [x] validate GNOME Settings Daemon brightness set/read-back/restore (2026-10-18) in the active session (note the requested-vs-actual gap on `amdgpu_bl1`);
 - [ ] select a compositor-aware resolution/refresh/VRR control path;
 - [ ] choose an evidence-backed power-target mechanism/range after the Loadout/HHD audit;
 - [ ] investigate charge limit/bypass and RGB only after checking maintained upstream implementations.
