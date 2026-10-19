@@ -6,7 +6,7 @@ import unittest
 import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gtk
+from gi.repository import Adw, GLib, Gtk
 
 from superx_helper.contracts import (
     CapabilityId,
@@ -62,6 +62,7 @@ def writable_record(
     allowed_values=(False, True),
     minimum=None,
     maximum=None,
+    unit=None,
 ) -> CapabilityRecord:
     """Build a CONFIRMED_LOCAL record whose contract reports can_write."""
     return CapabilityRecord(
@@ -76,6 +77,7 @@ def writable_record(
         allowed_values=list(allowed_values or []),
         minimum=minimum,
         maximum=maximum,
+        unit=unit,
     )
 
 
@@ -577,6 +579,39 @@ class TestUiWidgets(unittest.TestCase):
 
         row.control.set_selected(1)
         self.assertEqual(calls, [(record.capability_id, "performance")])
+
+    def test_unrealize_cancels_pending_scale_write(self):
+        record = writable_record(
+            capability_id=CapabilityId.INTERNAL_FAN.value,
+            label="Internal Fan",
+            observed_value=45,
+            allowed_values=[],
+            minimum=0,
+            maximum=100,
+        )
+        calls = []
+        row = CapabilityRow(record, on_set=lambda cid, val: calls.append((cid, val)))
+        row.control.set_value(70)
+        source_id = row._scale_source_id
+        self.assertIsNotNone(source_id)
+        row._cancel_scale()
+        self.assertIsNone(row._scale_source_id)
+        self.assertIsNone(GLib.MainContext.default().find_source_by_id(source_id))
+        self.assertEqual(calls, [])
+
+    def test_observed_below_slider_floor_is_stated(self):
+        record = writable_record(
+            capability_id=CapabilityId.DISPLAY_BRIGHTNESS.value,
+            label="Display Brightness",
+            observed_value=3,
+            allowed_values=[],
+            minimum=5,
+            maximum=100,
+            unit="%",
+        )
+        row = CapabilityRow(record)
+        self.assertIn("Observed: 3 %", row.get_subtitle())
+        self.assertIn("Slider floor 5 %", row.get_subtitle())
 
     def test_writable_scale_flushes_once_with_int(self):
         record = writable_record(
