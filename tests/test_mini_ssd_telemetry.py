@@ -45,6 +45,7 @@ class MiniSsdTelemetryTests(unittest.TestCase):
             pci = self.root / "sys/devices/pci0000:00/0000:00:03.1" / address
             nvme = pci / "nvme" / controller
             (nvme / f"{controller}n1").mkdir(parents=True)
+            (nvme / "state").write_text("live\n")
             (pci / "vendor").write_text(vendor)
             (pci / "device").write_text(device)
             (bus / address).symlink_to(pci, target_is_directory=True)
@@ -128,6 +129,15 @@ class MiniSsdTelemetryTests(unittest.TestCase):
         device.unlink()
         device.symlink_to("missing-controller")
         self.assertIsNone(self.telemetry()["temperature_c"])
+
+    def test_service_snapshot_warns_when_controller_is_dead(self):
+        presence = self.snapshot().by_id(CapabilityId.MINI_SSD_PRESENCE.value)
+        self.assertEqual((presence.safety_state, presence.warnings), (SafetyState.NORMAL, []))
+        (self.pci / "nvme/nvme0/state").write_text("dead\n")
+        presence = self.snapshot().by_id(CapabilityId.MINI_SSD_PRESENCE.value)
+        self.assertEqual(presence.observed_value["state"], "PCIE_ONLY")
+        self.assertEqual(presence.safety_state, SafetyState.WARNING)
+        self.assertIn("not usable", presence.warnings[0])
 
     def test_service_snapshot_keeps_reliability_unchanged(self):
         snapshot = self.snapshot()

@@ -21,6 +21,8 @@ class FakeSysfsCase(unittest.TestCase):
         self.pci = pci
         nvme = pci / "nvme" / "nvme0"
         (nvme / "nvme0n1").mkdir(parents=True)
+        self.controller_state = nvme / "state"
+        self.controller_state.write_text("live\n")
         (pci / "vendor").write_text("0x1dee")
         (pci / "device").write_text("0x2268")
         (pci / "link").mkdir()
@@ -152,7 +154,7 @@ class SamplerTests(FakeSysfsCase):
         sample = mini_ssd_sampler.take_sample(str(self.root), now)
         self.assertEqual(sample, {
             "timestamp_utc": "2026-10-18T00:00:00+00:00", "state": "NVME_PRESENT",
-            "pci_address": self.address, "controller": "nvme0",
+            "pci_address": self.address, "controller": "nvme0", "controller_state": "live",
             "link_speed": "16.0 GT/s PCIe", "link_width": 2,
             "max_link_speed": "16.0 GT/s PCIe", "max_link_width": 2,
             "aspm": {"l1": True, "l1_1": True, "l1_2": True}, "temperature_c": 46.9,
@@ -180,6 +182,13 @@ class SamplerTests(FakeSysfsCase):
         self.assertEqual(row["io"]["reads_completed"], 82829)
         self.assertTrue(row["io"]["mounted"])
         datetime.datetime.fromisoformat(row["timestamp_utc"])
+
+    def test_dead_controller_logs_pcie_only_and_keeps_mount_context(self):
+        self.controller_state.write_text("dead\n")
+        sample = mini_ssd_sampler.take_sample(str(self.root))
+        self.assertEqual((sample["state"], sample["controller_state"]), ("PCIE_ONLY", "dead"))
+        self.assertEqual(sample["controller"], "nvme0")
+        self.assertTrue(sample["io"]["mounted"])
 
     def test_absent_drive_still_logs_a_row(self):
         mini_ssd_sampler.main(["--sysfs-root", str(self.root / "nowhere"), "-o", str(self.log)])

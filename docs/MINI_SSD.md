@@ -189,7 +189,7 @@ Only add a test when its data is useful for discriminating a hypothesis.
 
 **Prediction:** failures correlate strongly with temperature/load, while cold/idle operation remains reliable; PCIe/NVMe errors appear near a repeatable thermal threshold.
 
-**Status:** HYPOTHESIS — weakened by the idle loss (OBS-2026-09-19-01) but revived slightly by two losses under active I/O (OBS-2026-08-29-01). No temperature was captured at any event; the new telemetry closes that gap.
+**Status:** HYPOTHESIS — weakened by the idle loss (OBS-2026-09-19-01) but revived slightly by two losses under active I/O (OBS-2026-08-29-01). No temperature was captured at those events. Strongly weakened by OBS-2026-10-31-01: 42.9 °C, idle, one minute before the loss.
 
 ### H5 — filesystem/application issue
 
@@ -201,7 +201,7 @@ Only add a test when its data is useful for discriminating a hypothesis.
 
 **Prediction:** failures persist across OS/kernel/config environments and follow the SSD or slot in a way inconsistent with software controls.
 
-**Status:** HYPOTHESIS — three identical losses on one unit are also what a marginal device would look like.
+**Status:** HYPOTHESIS — four identical losses on one unit are also what a marginal device would look like, and OBS-2026-10-31-01 shows the endpoint losing its PCI configuration without host action.
 
 ## Experimental discipline
 
@@ -260,7 +260,7 @@ Read-only facts gathered from the development Super X on 2026-10-18 (journal rev
 - **AER is unavailable on this platform.** Firmware `_OSC` reports `platform does not support [SHPCHotplug AER LTR DPC]`. Absence of AER messages is therefore *not* evidence of a clean link; PCIe-layer faults will surface only as NVMe driver symptoms (all-ones register reads, reset failures).
 - **Current power-management configuration** (unprivileged sysfs read): ASPM policy `default`; endpoint `l1_aspm=1`, `l1_1_aspm=1`, `l1_2_aspm=1`, `l1_1_pcipm=1`, `l1_2_pcipm=1`, `clkpm=1`, `d3cold_allowed=1`; `nvme_core.default_ps_max_latency_us=100000` (APST enabled with deep states permitted); controller quirk `simple_suspend`; sleep mode `s2idle`.
 - **Usage context:** the Mini SSD carries a single ext4 partition that is not in `/etc/fstab`; it is mounted on demand through the desktop automounter (udisks) and was not mounted at review time. It is idle most of the time, but losses have occurred both idle and under active I/O (see experiment log).
-- **Kernel command line** carries no `nvme_core`/`pcie_aspm` parameters as of 2026-10-18, so the grub edits attempted during the 2026-08-29 recovery are not in effect and the baseline above is the stock configuration.
+- **Kernel command line** carries no `nvme_core`/`pcie_aspm` parameters as of 2026-11-02, so the grub edits attempted during the 2026-08-29 recovery are not in effect and the baseline above is the stock configuration. Cause: `/etc/default/grub` line 9 sets `pcie_aspm=off nvme_core.default_ps_max_latency_us=0`, then line 10 reassigns `GRUB_CMDLINE_LINUX_DEFAULT` without them. The `pcie_aspm=off` after line 10's closing quote only sets an unused shell variable. Neither mitigation has ever run on this unit. Simply deleting line 10 would change two variables at once.
 - **Event frequency so far:** 3 controller losses in 2 of 25 boots / 71 days / 183 `PM: suspend entry` lines (2026-08-08 → 2026-10-18), all with the identical `CSTS=0xffffffff` → `reset failure: -19` signature. Two came within 7–14 minutes of mounting the drive and doing I/O; one came after 11 h idle. Reproduction by a bounded matrix is still unlikely at this rate; passive capture (now built, see Instrumentation) is the right first instrument, and mounting the drive for ordinary use is the most likely way to see the next event.
 
 ### Instrumentation
@@ -284,12 +284,12 @@ Passive, read-only capture added so the next drop-off arrives with context. Noth
 
 - `link_speed`, `link_width`, `max_link_speed`, `max_link_width` from the PCI device's `current_link_*`/`max_link_*`. A current value below max is shown as `(max Gen4 x2)` and is worth recording.
 - `aspm` (`l1`, `l1_1`, `l1_2`) from the PCI device's `link/` directory.
-- `temperature_c` from the `nvme` hwmon whose `device` link resolves under the Mini SSD PCI device (unprivileged; SMART stays unavailable without root).
-- sysfs-only, so refreshes stay cheap. The UI snapshot is not persisted, so the sampler below exists to keep a history.
+- `temperature_c` from the `nvme` hwmon whose `device` link resolves under the Mini SSD PCI device (unprivileged; SMART stays unavailable without root). This read is not passive: upstream, the nvme hwmon driver fetches the SMART log with an admin command, which wakes the drive. On 2026-10-31 a sample blocked for 63.5 s on the unresponsive controller, the only sample over 2 s in that boot.
+- sysfs-only, so refreshes stay cheap, but see the temperature note above. The UI snapshot is not persisted, so the sampler below exists to keep a history.
 
 **Periodic sampler** (`superx-mini-ssd-sample`, key `mini_ssd_telemetry_log` in `superx-diag`):
 
-- One run = one JSON line appended to `$XDG_STATE_HOME/superx-helper/mini-ssd-telemetry.jsonl` (default `~/.local/state/superx-helper/`): `timestamp_utc`, `state` (`ABSENT`/`PCIE_ONLY`/`NVME_PRESENT`), `pci_address`, `controller`, `link_speed`, `link_width`, `max_link_*`, `aspm`, `temperature_c`, plus `power` (`l1_1_pcipm`, `l1_2_pcipm`, `clkpm`, `d3cold_allowed`, `runtime_status`: the remaining H2 variables) and `io` (`reads_completed`, `sectors_read`, `writes_completed`, `sectors_written` from `/sys/block/<ns>/stat`, and `mounted`). The I/O counters are cumulative since boot, so activity is the difference between consecutive samples; that is what separates the idle loss from the two under-I/O losses. `mounted` comes from `/proc/self/mountinfo` matched on `/dev/<ns>`; no mount point or other mount detail is stored. Same kind of sysfs reads as above; no journalctl, nvme-cli, mount or drive access, and the log is the only file written. It keeps logging when the drive is absent, so the transition itself is recorded.
+- One run = one JSON line appended to `$XDG_STATE_HOME/superx-helper/mini-ssd-telemetry.jsonl` (default `~/.local/state/superx-helper/`): `timestamp_utc`, `state` (`ABSENT`/`PCIE_ONLY`/`NVME_PRESENT`), `pci_address`, `controller`, `link_speed`, `link_width`, `max_link_*`, `aspm`, `temperature_c`, plus `power` (`l1_1_pcipm`, `l1_2_pcipm`, `clkpm`, `d3cold_allowed`, `runtime_status`: the remaining H2 variables) and `io` (`reads_completed`, `sectors_read`, `writes_completed`, `sectors_written` from `/sys/block/<ns>/stat`, and `mounted`). The I/O counters are cumulative since boot, so activity is the difference between consecutive samples; that is what separates the idle loss from the two under-I/O losses. `mounted` comes from `/proc/self/mountinfo` matched on `/dev/<ns>`; no mount point or other mount detail is stored. Same kind of sysfs reads as above; no journalctl, nvme-cli or mount, and the log is the only file written. The temperature read does reach the controller once per sample (see above). It keeps logging when the drive is absent. Rows also carry `controller_state`, the kernel's value from the controller's sysfs `state` (no drive access). `NVME_PRESENT` requires `live`, so a `dead` or `resetting` controller logs `PCIE_ONLY`; a single `PCIE_ONLY` row with `resetting` or `connecting` is a transition, not a loss. `namespace` and `mounted` are kept for a non-live controller. Rows written before 2026-11-02 have no `controller_state` and logged `NVME_PRESENT` even for a dead controller; in those, a null `temperature_c` is the marker of a loss (OBS-2026-10-31-01).
 - The file is capped at the newest 50 000 lines (about 35 days at 60 s).
 - `superx-diag` embeds the last 200 samples and prints a `Mini SSD Samples:` summary line (last sample time and values, or `no samples`).
 - Manual run: `superx-mini-ssd-sample` (or `-o PATH` to write elsewhere). From a source checkout: `PYTHONPATH=src python3 -m superx_helper.mini_ssd_sampler`.
@@ -321,6 +321,57 @@ From a source checkout use `PYTHONPATH=src python3 -m superx_helper.collector` w
 This instrumentation adds evidence only. It does not change the reliability state (`NOT_QUALIFIED`) and does not tick any qualification item.
 
 ## Experiment log
+
+### OBS-2026-10-31-01 — Controller loss while unmounted, first event with telemetry (passive observation)
+
+Reviewed 2026-11-02. Not a designed experiment. Same signature as the three earlier losses; first one with samples leading up to it.
+
+**Baseline:**
+- kernel `7.0.0-38-generic`, BIOS `V1.01`, boot started 2026-10-20 10:01 MST, Mini SSD `nvme0`
+- last resume 06:53:54 MST, so about 10 h 50 min after the last suspend
+- not mounted at any point in this boot; 226 reads and 0 writes since boot, and the counters did not move before the loss
+- stock power configuration: the grub edits are not in effect (see Local evidence notes)
+- Frost Bay: not involved
+
+**Captured evidence (kernel log, 2026-10-31 MST):**
+
+```text
+17:41:34.86 last normal sample finishes (about 0.1 s): 42.9 °C, Gen4 x2, ASPM L1/L1.1/L1.2 enabled, runtime active
+17:42:35.76 next sample starts, then blocks for 63.5 s (the only sample over 2 s in this boot)
+17:43:39.18 nvme nvme0: controller is down; will reset: CSTS=0xffffffff, PCI_STATUS=0x10
+17:43:39.19 udisksd: housekeeping error: NVMe Identify Controller: Interrupted system call
+17:43:39.21 nvme 0000:c4:00.0: enabling device (0000 -> 0002)
+17:43:39.21 nvme nvme0: Disabling device after reset failure: -19
+20:09-20:11 six s2idle attempts abort: nvme 0000:c4:00.0: PM: failed to suspend async: error -16
+later       nvme nvme0: Identify namespace failed (-5), three times, aftermath of periodic scans
+```
+
+Read 2026-11-02 from the endpoint's config space (first 64 bytes of sysfs `config`, unprivileged), with the controller `state` = `dead`:
+
+```text
+endpoint   command=0x0000 cacheline=0x00 BAR0=0x00000004
+kernel     BAR0 resource = 0xd4a00000
+KIOXIA     command=0x0406 cacheline=0x10 BAR0=0xd4b00004 (healthy comparison)
+```
+
+**Reading of the evidence:**
+- The endpoint's BAR0 and cache line size are back at power-on defaults while the kernel still believes the old address. Nothing in the log shows the host resetting it. The drive lost its PCI configuration on its own: a firmware self-reset, a slot power glitch or a link-level reset would all look like this. The endpoint still reports its IDs and a Gen4 x2 link in sysfs, so its PCIe side is alive.
+- This explains the unrecoverable `-19`: the driver re-enables the device but never restores BAR0, so MMIO still reads all-ones. It also explains why `remove` + rescan worked on 2026-08-29: re-enumeration reprograms the BARs. Inference from local state and upstream driver behavior, not yet tested on this event.
+- The kernel timestamp is detection time, not failure time. The drive stopped answering between 17:41:34 and about 17:42:36, and the log line came about a minute later when an admin command timed out.
+- The namespace was idle but the controller was not untouched: the sampler's temperature read and udisks housekeeping both issue admin commands. A loss noticed on a command after idle fits a low-power-exit problem but does not prove it.
+- Temperature was unremarkable: 42.9 °C against a recorded range of 35.9–55.9 °C over 15 531 samples.
+- The link never showed degradation: no sample in this log, 17 851 total, was below Gen4 x2. `current_link_*` and `link/*aspm` still read normally after the loss, so they cannot detect this failure and cannot rule out a link event between samples.
+- No data was at risk this time: unmounted, no writes.
+
+**What this rules out / weakens:** H4 (thermal) strongly weakened. H5 still rejected. H2/H3/H6 and a power-glitch form of H1 remain; this event does not separate them.
+
+**Instrument defects this event exposed:**
+- `discover_mini_ssd` classifies from sysfs presence and never reads the controller `state`, so all 2 320 samples after the loss recorded `NVME_PRESENT` for a `dead` controller with a 0-byte namespace. The null `temperature_c` is the only trace of the loss in the log. Fixed 2026-11-02: only a `live` controller counts as `NVME_PRESENT`.
+- The temperature read is not passive (see Instrumentation). It wakes the drive once a minute. The 2026-08-29 and 2026-09-19 losses predate the sampler, so it is not required for the failure, but it cannot be ruled out as a contributor to this one.
+
+**Conclusion:** HYPOTHESIS. Failure layer refined to "endpoint lost its PCI configuration without host action". Cause unresolved.
+
+**Next smallest discriminating experiment:** disable APST alone with `nvme_core.default_ps_max_latency_us=0`, leaving ASPM on and the sampler unchanged. At about one loss every 3–4 weeks, 60 clean days would be needed before crediting it (about a 10% chance of that gap by luck alone). A loss with APST off would rule out APST and move ASPM L1.2 to the next single variable. A clean run still does not qualify the drive.
 
 ### OBS-2026-08-29-01 — Two controller losses under active I/O in one boot (passive observation)
 
