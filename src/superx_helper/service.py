@@ -411,7 +411,10 @@ def build_capability_records(
 
     mini = storage.get("mini_ssd", {}) if isinstance(storage, dict) else {}
     mini_state = mini.get("state", low.mini_ssd_classification) if isinstance(mini, dict) else low.mini_ssd_classification
-    mini_present = mini_state != "ABSENT"
+    mini_warnings = {
+        "NVME_PRESENT": [],
+        "PCIE_ONLY": ["Mini SSD is visible on PCIe but its NVMe controller is not usable. A reboot may be needed."],
+    }.get(mini_state, ["Mini SSD is not currently visible at the PCIe endpoint."])
     records.append(
         CapabilityRecord(
             CapabilityId.MINI_SSD_PRESENCE.value,
@@ -424,8 +427,8 @@ def build_capability_records(
             owner="PCIe / Linux NVMe",
             backend="storage",
             reason_unavailable=None,
-            warnings=[] if mini_present else ["Mini SSD is not currently visible at the PCIe endpoint."],
-            safety_state=SafetyState.WARNING if not mini_present else SafetyState.NORMAL,
+            warnings=mini_warnings,
+            safety_state=SafetyState.WARNING if mini_warnings else SafetyState.NORMAL,
         )
     )
     records.append(

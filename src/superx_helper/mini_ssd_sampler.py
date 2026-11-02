@@ -44,6 +44,7 @@ def take_sample(sysfs_root: str = "", now: Optional[datetime.datetime] = None) -
         "state": presence.state.value,
         "pci_address": presence.pci_address,
         "controller": presence.controller,
+        "controller_state": presence.controller_state,
         "link_speed": telemetry["link_speed"],
         "link_width": telemetry["link_width"],
         "max_link_speed": telemetry["max_link_speed"],

@@ -30,6 +30,7 @@ class MiniSsdPresence:
     pci_address: Optional[str] = None
     controller: Optional[str] = None
     namespaces: List[str] = field(default_factory=list)
+    controller_state: Optional[str] = None
 
     def to_dict(self) -> Dict[str, object]:
         data = asdict(self)
@@ -196,8 +197,21 @@ def list_nvme_namespaces(
     return sorted(found)
 
 
+def read_controller_state(controller_path: Path) -> Optional[str]:
+    """Return the kernel's NVMe controller state; sysfs only, never reaches the drive."""
+    try:
+        return (controller_path / "state").read_text().strip() or None
+    except (OSError, UnicodeError):
+        return None
+
+
 def discover_mini_ssd(sysfs_root: str = "") -> MiniSsdPresence:
-    """Classify the known BIWIN Mini SSD from PCIe through namespace presence."""
+    """Classify the known BIWIN Mini SSD from PCIe through namespace presence.
+
+    A dead controller keeps its namespace node, so only a ``live`` controller
+    counts as NVME_PRESENT.  Unknown state never does.  Namespaces stay listed
+    for a non-live controller so a mounted filesystem on a lost drive is visible.
+    """
 
     pci_root = rooted(sysfs_root, "/sys/bus/pci/devices")
     if not pci_root.exists():
@@ -232,17 +246,20 @@ def discover_mini_ssd(sysfs_root: str = "") -> MiniSsdPresence:
         for controller in controllers:
             namespaces = list_nvme_namespaces(controller, controller.name, sysfs_root)
             if namespaces:
+                state = read_controller_state(controller)
                 return MiniSsdPresence(
-                    MiniSsdPresenceState.NVME_PRESENT,
+                    MiniSsdPresenceState.NVME_PRESENT if state == "live" else MiniSsdPresenceState.PCIE_ONLY,
                     pci_address=pci_dev.name,
                     controller=controller.name,
                     namespaces=namespaces,
+                    controller_state=state,
                 )
 
         return MiniSsdPresence(
             MiniSsdPresenceState.PCIE_ONLY,
             pci_address=pci_dev.name,
             controller=controllers[0].name,
+            controller_state=read_controller_state(controllers[0]),
         )
 
     return MiniSsdPresence(MiniSsdPresenceState.ABSENT)

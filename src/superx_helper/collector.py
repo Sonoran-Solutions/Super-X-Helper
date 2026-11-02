@@ -20,7 +20,7 @@ import subprocess
 import sys
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
-from superx_helper.storage import discover_mini_ssd, list_nvme_namespaces, rooted
+from superx_helper.storage import discover_mini_ssd, list_nvme_namespaces, read_controller_state, rooted
 
 CommandRunner = Callable[[Sequence[str]], Tuple[int, str, str]]
 _RELEVANT_KERNEL = re.compile(r"\b(nvme|pcie|aer|oxpec|amdgpu|bluetooth|btusb)\b", re.I)
@@ -349,7 +349,8 @@ def get_storage_inventory(
                 vendor_device = f"{vendor.removeprefix('0x')}:{device.removeprefix('0x')}"
 
             is_mini = pci_address == mini.pci_address or "BIWIN" in (model or "").upper()
-            classification = mini.state.value if is_mini else ("NVME_PRESENT" if namespaces else "PCIE_ONLY")
+            usable = namespaces and read_controller_state(ctrl) == "live"
+            classification = mini.state.value if is_mini else ("NVME_PRESENT" if usable else "PCIE_ONLY")
             controllers.append(
                 {
                     "controller": ctrl.name,
