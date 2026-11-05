@@ -260,7 +260,7 @@ Read-only facts gathered from the development Super X on 2026-10-18 (journal rev
 - **AER is unavailable on this platform.** Firmware `_OSC` reports `platform does not support [SHPCHotplug AER LTR DPC]`. Absence of AER messages is therefore *not* evidence of a clean link; PCIe-layer faults will surface only as NVMe driver symptoms (all-ones register reads, reset failures).
 - **Current power-management configuration** (unprivileged sysfs read): ASPM policy `default`; endpoint `l1_aspm=1`, `l1_1_aspm=1`, `l1_2_aspm=1`, `l1_1_pcipm=1`, `l1_2_pcipm=1`, `clkpm=1`, `d3cold_allowed=1`; `nvme_core.default_ps_max_latency_us=100000` (APST enabled with deep states permitted); controller quirk `simple_suspend`; sleep mode `s2idle`.
 - **Usage context:** the Mini SSD carries a single ext4 partition that is not in `/etc/fstab`; it is mounted on demand through the desktop automounter (udisks) and was not mounted at review time. It is idle most of the time, but losses have occurred both idle and under active I/O (see experiment log).
-- **Kernel command line** carries no `nvme_core`/`pcie_aspm` parameters as of 2026-11-02, so the grub edits attempted during the 2026-08-29 recovery are not in effect and the baseline above is the stock configuration. Cause: `/etc/default/grub` line 9 sets `pcie_aspm=off nvme_core.default_ps_max_latency_us=0`, then line 10 reassigns `GRUB_CMDLINE_LINUX_DEFAULT` without them. The `pcie_aspm=off` after line 10's closing quote only sets an unused shell variable. Neither mitigation has ever run on this unit. Simply deleting line 10 would change two variables at once.
+- **Kernel command line** carries no `nvme_core`/`pcie_aspm` parameters as of 2026-11-02, so the grub edits attempted during the 2026-08-29 recovery are not in effect and the baseline above is the stock configuration. Cause: `/etc/default/grub` line 9 sets `pcie_aspm=off nvme_core.default_ps_max_latency_us=0`, then line 10 reassigns `GRUB_CMDLINE_LINUX_DEFAULT` without them. The `pcie_aspm=off` after line 10's closing quote only sets an unused shell variable. Neither mitigation ran on this unit before 2026-11-05. Simply deleting line 10 would change two variables at once. Since the 2026-11-05 boot the grub file carries only `nvme_core.default_ps_max_latency_us=0`, and it is on the running command line (EXP-2026-11-05-01). `pcie_aspm` is still stock.
 - **Event frequency so far:** 3 controller losses in 2 of 25 boots / 71 days / 183 `PM: suspend entry` lines (2026-08-08 → 2026-10-18), all with the identical `CSTS=0xffffffff` → `reset failure: -19` signature. Two came within 7–14 minutes of mounting the drive and doing I/O; one came after 11 h idle. Reproduction by a bounded matrix is still unlikely at this rate; passive capture (now built, see Instrumentation) is the right first instrument, and mounting the drive for ordinary use is the most likely way to see the next event.
 
 ### Instrumentation
@@ -321,6 +321,46 @@ From a source checkout use `PYTHONPATH=src python3 -m superx_helper.collector` w
 This instrumentation adds evidence only. It does not change the reliability state (`NOT_QUALIFIED`) and does not tick any qualification item.
 
 ## Experiment log
+
+### EXP-2026-11-05-01 — APST disabled (in progress)
+
+**Question:** Does disabling NVMe autonomous power state transitions (APST) stop the controller losses?
+
+**Baseline (boot started 2026-11-05 16:18 MST):**
+- kernel: `7.0.0-42-generic`, up from `7.0.0-38-generic` in the loss boot of OBS-2026-10-31-01
+- BIOS: `V1.01`
+- power state: sleep mode `s2idle`; no suspend yet in this boot
+- Frost Bay: not involved
+- Mini SSD state: `live`, `nvme1` in this boot, Gen4 x2, no loss lines since boot; not mounted (see note below)
+- other relevant config: ASPM policy `default`, endpoint `l1_aspm`/`l1_1_aspm`/`l1_2_aspm`/`clkpm` all `1`; per-minute sampler timer active
+
+**Current hypothesis:** H3. The controller fails on an APST deep-state exit and resets its own PCI configuration (OBS-2026-10-31-01).
+
+**Prediction if hypothesis is true:** no `controller is down` / `reset failure: -19` episode during a run long enough to beat the baseline rate.
+
+**Single variable changed:** `nvme_core.default_ps_max_latency_us=0` (was `100000`). It is set in `/etc/default/grub`; the backup is `/etc/default/grub.bak-2026-11-02`. Confirmed on `/proc/cmdline` and in `/sys/module/nvme_core/parameters/default_ps_max_latency_us` = `0`. The parameter is global, so the internal KIOXIA also runs without APST.
+
+**Confound:** the kernel update to `7.0.0-42` arrived in the same reboot, so a clean run supports "APST off or kernel -42". It is not attributable to APST alone. The earlier losses span `7.0.0-31` (OBS-2026-09-19-01) and `7.0.0-38` (OBS-2026-10-31-01), so a kernel regression was never a leading explanation.
+
+**Procedure:**
+1. Use the drive normally, including mounting it. Mounting is how two of the four losses were seen.
+2. Leave ASPM, the sampler and the kernel command line otherwise unchanged.
+3. Check `mini_ssd_events` (`superx-diag`) and the sampler log periodically.
+
+**Stop and record if:** a loss episode occurs (record it as OBS with the sampler context), or another variable changes (kernel, BIOS, ASPM, slot or reseat).
+
+**Pass bar:** 60 days without a loss episode, ending no earlier than 2026-01-04. At the observed rate of about one episode every 3–4 weeks, a gap that long by chance is about 10% likely. Passing supports this mitigation but does not tick the reliability qualification. The drive stays `NOT_QUALIFIED`.
+
+**Notes:**
+- The drive was dead from the 2026-10-31 17:43 loss until that boot ended on 2026-11-05 06:09. The next boot enumerated it normally without a reseat, as after every earlier loss.
+- Not auto-mounted after boot: udisks marks the drive `HintSystem=true`, `HintAuto=false` (internal NVMe, not removable), so it must be mounted from Files or `udisksctl mount`. That is how it has always behaved, not a symptom of failure.
+- Until the installed helper is reinstalled from `main` (after #26), sampler rows still lack `controller_state` and log a dead controller as `NVME_PRESENT`; a null `temperature_c` remains the loss marker for those rows.
+
+**Observed result:** pending.
+
+**Conclusion:** HYPOTHESIS (in progress).
+
+**Next smallest discriminating experiment:** if a loss occurs with APST off, APST is ruled out. Restore `100000` and test ASPM L1.2 alone.
 
 ### OBS-2026-10-31-01 — Controller loss while unmounted, first event with telemetry (passive observation)
 
