@@ -8,23 +8,18 @@ import signal
 
 from gi.repository import Gio, GLib
 
+from superx_helper.dbus_names import BUS_NAME, OBJECT_PATH, INTERFACE, POLKIT_TIMEOUT_MS
 from superx_helper.contracts import CapabilityId, OperationResult
 from superx_helper.policy import LOCALLY_VALIDATED_WRITES, OWNER_ROUTED_WRITES
 from superx_helper.service import SuperXService, coerce_capability_id
 from superx_helper.transport import operation_result_to_dict, snapshot_to_dict
 
-BUS_NAME = "org.sonoran.SuperXHelper1"
-OBJECT_PATH = "/org/sonoran/SuperXHelper1"
-INTERFACE = BUS_NAME
 MAX_VALUE_BYTES = 4096
-POLKIT_TIMEOUT_MS = 120000
 
 # Exact ids only: no prefix matching or caller-provided action names.
 CAPABILITY_ACTIONS = {
     CapabilityId.CPU_BOOST.value: "org.sonoran.SuperXHelper.set-performance",
-    CapabilityId.CPU_EPP.value: "org.sonoran.SuperXHelper.set-performance",
     CapabilityId.INTERNAL_FAN.value: "org.sonoran.SuperXHelper.set-cooling",
-    CapabilityId.DISPLAY_BRIGHTNESS.value: "org.sonoran.SuperXHelper.set-display",
 }
 
 INTROSPECTION_XML = f"""<node>
@@ -54,12 +49,8 @@ def decode_value(capability_id: str, value_json: str):
         raise ValueError("Non-finite numbers are not allowed.")
     if capability_id == CapabilityId.CPU_BOOST.value:
         valid = type(value) is bool
-    elif capability_id == CapabilityId.CPU_EPP.value:
-        valid = type(value) is str
     elif capability_id == CapabilityId.INTERNAL_FAN.value:
         valid = type(value) is int and 0 <= value <= 100
-    elif capability_id == CapabilityId.DISPLAY_BRIGHTNESS.value:
-        valid = type(value) in (int, float) and 5 <= value <= 100 and int(value) == value
     else:
         valid = False
     if not valid:
@@ -91,10 +82,10 @@ class DBusService:
             OBJECT_PATH, info.interfaces[0], self.handle_method_call, None, None,
         )
 
-    def _authorized(self, connection, sender: str, action: str) -> bool:
+    def _authorized(self, connection, sender: str, action: str, callback):
         # sender is supplied by the bus, never by the JSON request. Use the
         # system-bus-name subject so polkit resolves the caller's credentials.
-        reply = connection.call_sync(
+        connection.call(
             "org.freedesktop.PolicyKit1", "/org/freedesktop/PolicyKit1/Authority",
             "org.freedesktop.PolicyKit1.Authority", "CheckAuthorization",
             GLib.Variant("((sa{sv})sa{ss}us)", (
@@ -102,16 +93,18 @@ class DBusService:
                 action, {}, 1, "",
             )),
             GLib.VariantType.new("((bba{ss}))"), Gio.DBusCallFlags.NONE,
-            POLKIT_TIMEOUT_MS, None,
+            POLKIT_TIMEOUT_MS, None, callback, None,
         )
-        return reply.unpack()[0][0]
 
-    def set_capability(self, connection, sender, capability_id, value_json):
+    def set_capability(self, connection, sender, capability_id, value_json, complete, failed):
         cid = coerce_capability_id(capability_id)
         if cid is None:
             return OperationResult(False, capability_id, error_message="Unknown capability id.")
         if capability_id not in CAPABILITY_ACTIONS:
-            return OperationResult(False, capability_id, error_message="Capability has no privileged write policy.")
+            return OperationResult(False, capability_id, error_message=(
+                "Capability has no privileged write policy. This capability must use its desktop owner in the user's session."
+                if capability_id in OWNER_ROUTED_WRITES else "Capability has no privileged write policy."
+            ))
         try:
             value = decode_value(capability_id, value_json)
         except (ValueError, RecursionError) as error:
@@ -122,27 +115,48 @@ class DBusService:
         # it already forbids, and check it again after polkit before dispatch.
         if capability_id not in self.service.validated_writes:
             return self.service.set_capability(capability_id, value)
-        try:
-            allowed = self._authorized(connection, sender, CAPABILITY_ACTIONS[capability_id])
-        except GLib.Error:
-            allowed = False
-        if not allowed:
-            return OperationResult(False, capability_id, value, error_message="Polkit authorization denied or unavailable.")
-        return self.service.set_capability(capability_id, value)
+
+        def authorized(source, result, user_data):
+            try:
+                try:
+                    allowed = source.call_finish(result).unpack()[0][0]
+                except GLib.Error:
+                    allowed = False
+                if not allowed:
+                    complete(OperationResult(False, capability_id, value, error_message="Polkit authorization denied or unavailable."))
+                else:
+                    # Recheck facade authorization after the asynchronous prompt.
+                    complete(self.service.set_capability(capability_id, value))
+            except Exception:
+                failed()
+
+        self._authorized(connection, sender, CAPABILITY_ACTIONS[capability_id], authorized)
+        return None
 
     def handle_method_call(self, connection, sender, path, interface, method, parameters, invocation):
+        def failed():
+            # Do not expose backend paths or root-process exception details.
+            invocation.return_dbus_error(f"{INTERFACE}.Error.Failed", "Service operation failed.")
+
+        def complete(result):
+            try:
+                data = operation_result_to_dict(result)
+                invocation.return_value(GLib.Variant("(s)", (json.dumps(data, allow_nan=False),)))
+            except Exception:
+                failed()
+
         try:
             if method == "GetSnapshot":
                 data = snapshot_to_dict(self.service.get_capability_snapshot())
+                invocation.return_value(GLib.Variant("(s)", (json.dumps(data, allow_nan=False),)))
             elif method == "SetCapability":
-                data = operation_result_to_dict(self.set_capability(connection, sender, *parameters.unpack()))
+                result = self.set_capability(connection, sender, *parameters.unpack(), complete, failed)
+                if result is not None:
+                    complete(result)
             else:
                 invocation.return_dbus_error("org.freedesktop.DBus.Error.UnknownMethod", "Unknown method.")
-                return
-            invocation.return_value(GLib.Variant("(s)", (json.dumps(data, allow_nan=False),)))
         except Exception:
-            # Do not expose backend paths or root-process exception details.
-            invocation.return_dbus_error(f"{INTERFACE}.Error.Failed", "Service operation failed.")
+            failed()
 
 
 def main() -> int:

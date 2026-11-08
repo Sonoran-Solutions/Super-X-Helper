@@ -12,7 +12,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gio, GLib
 
 from superx_helper.client import DBusServiceClient, LocalServiceClient, ServiceClient, SessionServiceClient
-from superx_helper.dbus_service import BUS_NAME
+from superx_helper.dbus_names import BUS_NAME
 from superx_helper.service import SuperXService
 from superx_helper.ui.window import SuperXWindow
 

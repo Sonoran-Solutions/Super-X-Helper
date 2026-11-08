@@ -43,6 +43,7 @@ class SuperXWindow(Adw.ApplicationWindow):
     def __init__(self, app: Adw.Application, client: ServiceClient):
         super().__init__(application=app)
         self.client = client
+        self.snapshot = CapabilitySnapshot(1, "", [])
         self.set_title("Super X Helper")
         self.set_default_size(960, 680)
 
@@ -173,7 +174,11 @@ class SuperXWindow(Adw.ApplicationWindow):
 
     def refresh(self) -> None:
         """Fetch fresh capability snapshot and update all pages."""
-        snapshot = self.client.get_snapshot()
+        try:
+            self.snapshot = self.client.get_snapshot()
+        except Exception as error:
+            self._toast_overlay().add_toast(Adw.Toast.new(f"Refresh failed: {error}"))
+        snapshot = self.snapshot
         for page in self.pages.values():
             if hasattr(page, "update_from_snapshot"):
                 page.update_from_snapshot(snapshot)
@@ -190,11 +195,14 @@ class SuperXWindow(Adw.ApplicationWindow):
 
     def _apply_capability(self, capability_id: str, value: Any) -> None:
         """Request a capability write, then re-render from the read-back state."""
-        def completed(result, snapshot):
+        def completed(result, snapshot, refresh_error):
             if not result.success:
                 message = result.error_message or f"Could not update {capability_id}."
                 self._toast_overlay().add_toast(Adw.Toast.new(message))
+            if refresh_error is not None:
+                self._toast_overlay().add_toast(Adw.Toast.new(f"State could not be refreshed: {refresh_error}"))
             if snapshot is not None:
+                self.snapshot = snapshot
                 for page in self.pages.values():
                     if hasattr(page, "update_from_snapshot"):
                         page.update_from_snapshot(snapshot)

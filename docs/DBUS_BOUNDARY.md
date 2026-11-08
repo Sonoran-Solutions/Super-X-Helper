@@ -27,6 +27,9 @@ Apply and snapshot read-back run on one worker, preserving write order. Completi
 and error toasts are delivered with `GLib.idle_add`; widgets render observed state
 from the new snapshot rather than assuming the requested value was applied.
 Manual refresh and initial snapshot loading retain the synchronous client API.
+Refresh failures show a toast and retain the previous snapshot; on initial failure,
+pages render an empty snapshot. A successful write remains successful if its
+subsequent snapshot fetch fails; a separate toast reports that refresh failure.
 The router currently collects a full local snapshot to obtain its two owner
 records, reusing the existing facade rather than duplicating capability logic.
 
@@ -46,10 +49,11 @@ hardware access, configurable action name, network listener, or diagnostics
 export method. Snapshots use the existing cheap UI telemetry, excluding SMART,
 journal collection and unique storage serials/Bluetooth addresses.
 
-The system bus policy grants name ownership only to root. Console users may send
-only these two interface methods at this path. Other users are denied. Bus policy
-does not grant a hardware write: the facade's production authorization remains
-mandatory. Unknown IDs, IDs without an explicit privileged action/type rule,
+The system bus policy grants name ownership only to root. Its default policy
+allows callers to send exactly these two interface methods at this fixed path.
+`GetSnapshot` exposes unauthenticated read-only data. Write authorization is
+polkit's job, together with the mandatory facade gate; bus access grants no
+hardware write. Unknown IDs, IDs without an explicit privileged action/type rule,
 malformed/oversized JSON, invalid types/ranges, and desktop-owner writes fail
 before polkit. JSON is capped at 4096 UTF-8 bytes; bool cannot stand in for int;
 NaN, Infinity and overflow to infinity are rejected. Owner-specific range/options
@@ -58,9 +62,10 @@ and backend safety/read-back validation remain authoritative.
 For a production-authorized privileged ID, polkit checks a fixed action from
 `CAPABILITY_ACTIONS` with a `system-bus-name` subject containing the bus-supplied
 unique sender. The caller cannot supply an identity or action. There are fixed
-performance, cooling and display actions; active users default to
+performance and cooling actions; active users default to
 `auth_admin_keep`, inactive/other users to `no`. Interactive authorization has a
-120-second timeout; denial, cancellation and authority errors fail closed.
+120-second timeout and runs asynchronously, so snapshots remain available during
+a prompt; denial, cancellation and authority errors fail closed.
 `SuperXService.set_capability` checks authorization again before backend dispatch.
 Currently no privileged ID reaches polkit because none is qualified.
 

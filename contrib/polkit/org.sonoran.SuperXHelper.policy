@@ -21,13 +21,4 @@
       <allow_active>auth_admin_keep</allow_active>
     </defaults>
   </action>
-  <action id="org.sonoran.SuperXHelper.set-display">
-    <description>Change a qualified Super X display setting</description>
-    <message>Administrator authentication is required to change privileged Super X display settings.</message>
-    <defaults>
-      <allow_any>no</allow_any>
-      <allow_inactive>no</allow_inactive>
-      <allow_active>auth_admin_keep</allow_active>
-    </defaults>
-  </action>
 </policyconfig>

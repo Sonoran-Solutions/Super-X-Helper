@@ -55,6 +55,8 @@ class BoundaryBus:
         self.allowed = True
         self.error = None
         self.owned = True
+        self.pending = []
+        self.defer_polkit = False
 
     def call_sync(self, name, path, iface, method, params, reply_type, flags, timeout, cancellable):
         self.calls.append((name, path, iface, method, params, flags, timeout))
@@ -64,13 +66,6 @@ class BoundaryBus:
             assert params.unpack() == (BUS_NAME,)
             assert timeout == 2000
             return GLib.Variant("(b)", (self.owned,))
-        if method == "CheckAuthorization":
-            assert (name, path, iface) == (
-                "org.freedesktop.PolicyKit1", "/org/freedesktop/PolicyKit1/Authority",
-                "org.freedesktop.PolicyKit1.Authority",
-            )
-            assert timeout == POLKIT_TIMEOUT_MS
-            return GLib.Variant("((bba{ss}))", ((self.allowed, False, {}),))
         assert (name, path, iface) == (BUS_NAME, OBJECT_PATH, INTERFACE)
         assert flags == Gio.DBusCallFlags.NO_AUTO_START
         invocation = FakeInvocation()
@@ -78,6 +73,26 @@ class BoundaryBus:
         if invocation.error:
             raise GLib.Error(invocation.error[1])
         return invocation.value
+
+    def call(self, name, path, iface, method, params, reply_type, flags, timeout, cancellable, callback, user_data):
+        self.calls.append((name, path, iface, method, params, flags, timeout))
+        assert (name, path, iface, method) == (
+            "org.freedesktop.PolicyKit1", "/org/freedesktop/PolicyKit1/Authority",
+            "org.freedesktop.PolicyKit1.Authority", "CheckAuthorization",
+        )
+        assert timeout == POLKIT_TIMEOUT_MS
+        self.pending.append((callback, user_data))
+        if not self.defer_polkit:
+            self.finish_polkit()
+
+    def finish_polkit(self):
+        callback, user_data = self.pending.pop(0)
+        callback(self, object(), user_data)
+
+    def call_finish(self, result):
+        if self.error:
+            raise self.error
+        return GLib.Variant("((bba{ss}))", ((self.allowed, False, {}),))
 
     def polkit_calls(self):
         return [call for call in self.calls if call[3] == "CheckAuthorization"]
@@ -159,15 +174,13 @@ class DBusBoundaryTests(unittest.TestCase):
         self.assertEqual(self.platform.mock_calls, [])
 
     def test_size_cap_counts_utf8_bytes(self):
-        result = self.invoke("performance.epp", '"' + "é" * (MAX_VALUE_BYTES // 2) + '"')
+        result = self.invoke("performance.cpu_boost", '"' + "é" * (MAX_VALUE_BYTES // 2) + '"')
         self.assertIn("4096 bytes", result.error_message)
 
     def test_types_and_nonfinite_values_fail_before_polkit(self):
         cases = {
             "performance.cpu_boost": ("1", '"true"', "null", "{}", "[]", "NaN", "1e999"),
             "cooling.internal_fan": ("true", '"42"', "42.0", "-1", "101", "Infinity", "-Infinity"),
-            "display.brightness": ("true", '"50"', "50.5", "4", "101", "NaN", "1e999"),
-            "performance.epp": ("true", "50", "null", "[]"),
         }
         self.service.validated_writes = set(cases)
         for cid, values in cases.items():
@@ -183,7 +196,8 @@ class DBusBoundaryTests(unittest.TestCase):
         for cid, raw in (("performance.epp", '"balanced"'), ("display.brightness", "50.0")):
             result = self.invoke(cid, raw)
             self.assertFalse(result.success)
-            self.assertIn("user's session", result.error_message)
+            self.assertIn("desktop owner", result.error_message)
+            self.assertIn("no privileged write policy", result.error_message)
         self.service.power_profiles.set.assert_not_called()
         self.service.brightness_owner.set.assert_not_called()
         self.assertEqual(self.bus.polkit_calls(), [])
@@ -213,11 +227,49 @@ class DBusBoundaryTests(unittest.TestCase):
 
         def revoke(*args):
             self.service.validated_writes.clear()
-            return True
+            return GLib.Variant("((bba{ss}))", ((True, False, {}),))
 
-        with patch.object(self.adapter, "_authorized", side_effect=revoke):
+        with patch.object(self.bus, "call_finish", side_effect=revoke):
             self.assertFalse(self.invoke("performance.cpu_boost", "true").success)
         self.platform.set_cpu_boost.assert_not_called()
+
+    def test_pending_polkit_does_not_block_snapshot(self):
+        self.service.validated_writes = {"performance.cpu_boost"}
+        self.bus.defer_polkit = True
+        invocation = FakeInvocation()
+        self.adapter.handle_method_call(
+            self.bus, ":1.42", OBJECT_PATH, INTERFACE, "SetCapability",
+            GLib.Variant("(ss)", ("performance.cpu_boost", "true")), invocation,
+        )
+        self.assertIsNone(invocation.value)
+        self.assertIsNone(invocation.error)
+        self.assertEqual(snapshot_to_dict(self.client.get_snapshot()), snapshot_to_dict(self.snapshot))
+        self.platform.set_cpu_boost.assert_not_called()
+        self.bus.finish_polkit()
+        self.assertTrue(json.loads(invocation.value.unpack()[0])["success"])
+        self.platform.set_cpu_boost.assert_called_once_with(True)
+
+    def test_async_callback_exception_returns_generic_error(self):
+        self.service.validated_writes = {"performance.cpu_boost"}
+        self.bus.defer_polkit = True
+        invocation = FakeInvocation()
+        self.adapter.handle_method_call(
+            self.bus, ":1.42", OBJECT_PATH, INTERFACE, "SetCapability",
+            GLib.Variant("(ss)", ("performance.cpu_boost", "true")), invocation,
+        )
+        self.platform.set_cpu_boost.side_effect = RuntimeError("secret root path")
+        self.bus.finish_polkit()
+        self.assertEqual(invocation.error, (f"{INTERFACE}.Error.Failed", "Service operation failed."))
+        self.assertIsNone(invocation.value)
+
+    def test_owner_refusal_survives_accidental_privileged_mapping(self):
+        with patch.dict(CAPABILITY_ACTIONS, {"performance.epp": "unused"}), patch(
+            "superx_helper.dbus_service.decode_value", return_value="balanced",
+        ):
+            result = self.invoke("performance.epp", '\"balanced\"')
+        self.assertIn("desktop owner", result.error_message)
+        self.assertEqual(self.bus.polkit_calls(), [])
+        self.service.power_profiles.set.assert_not_called()
 
     def test_backend_failure_and_dbus_errors_propagate(self):
         self.service.validated_writes = {"performance.cpu_boost"}
@@ -325,7 +377,7 @@ class AsyncApplyTests(unittest.TestCase):
         client.get_snapshot.side_effect = read
         received = []
         future = apply_capability_async(client, "performance.cpu_boost", True,
-                                        lambda result, state: received.append((result, state, threading.get_ident())))
+                                        lambda result, state, error: received.append((result, state, threading.get_ident())))
         future.result(timeout=2)
         self.assertEqual(received, [])  # completion is queued, not invoked by worker
         self.deliver(received)
@@ -377,8 +429,10 @@ class AsyncApplyTests(unittest.TestCase):
         apply_capability_async(client, "performance.cpu_boost", True,
                                lambda *args: received.append(args)).result(timeout=2)
         self.deliver(received)
-        self.assertFalse(received[0][0].success)
-        self.assertIn("Refresh failed", received[0][0].error_message)
+        self.assertIs(received[0][0], client.set_capability.return_value)
+        self.assertTrue(received[0][0].success)
+        self.assertIsNone(received[0][0].error_message)
+        self.assertIn("daemon gone", received[0][2])
         self.assertIsNone(received[0][1])
 
     def test_window_returns_while_write_is_blocked_then_renders_readback(self):
@@ -422,24 +476,66 @@ class AsyncApplyTests(unittest.TestCase):
         overlay.add_toast.assert_called_once_with("toast")
         page.update_from_snapshot.assert_called_once_with(client.get_snapshot.return_value)
 
+    def test_window_refresh_failure_keeps_previous_snapshot(self):
+        previous = snapshot()
+        client, page, overlay = Mock(), Mock(), Mock()
+        client.get_snapshot.side_effect = [previous, GLib.Error("daemon gone")]
+        window = SimpleNamespace(client=client, pages={"test": page}, snapshot=snapshot(True),
+                                 _toast_overlay=lambda: overlay)
+        with patch("superx_helper.ui.window.Adw.Toast.new", return_value="toast") as toast:
+            SuperXWindow.refresh(window)
+            SuperXWindow.refresh(window)
+        self.assertIs(window.snapshot, previous)
+        self.assertEqual(page.update_from_snapshot.call_count, 2)
+        page.update_from_snapshot.assert_called_with(previous)
+        toast.assert_called_once_with(f"Refresh failed: {GLib.Error('daemon gone')}")
+        overlay.add_toast.assert_called_once_with("toast")
+
+    def test_window_initial_refresh_failure_renders_empty_snapshot(self):
+        client, page, overlay = Mock(), Mock(), Mock()
+        client.get_snapshot.side_effect = RuntimeError("daemon gone")
+        window = SimpleNamespace(client=client, pages={"test": page}, snapshot=CapabilitySnapshot(1, "", []),
+                                 _toast_overlay=lambda: overlay)
+        with patch("superx_helper.ui.window.Adw.Toast.new", return_value="toast"):
+            SuperXWindow.refresh(window)
+        self.assertEqual(page.update_from_snapshot.call_args.args[0].capabilities, [])
+        overlay.add_toast.assert_called_once_with("toast")
+
+    def test_window_successful_write_with_refresh_failure_toasts_only_refresh(self):
+        client, page, overlay = Mock(), Mock(), Mock()
+        result = OperationResult(True, "performance.cpu_boost")
+        client.set_capability.return_value = result
+        client.get_snapshot.side_effect = GLib.Error("daemon gone")
+        window = SimpleNamespace(client=client, pages={"test": page}, _toast_overlay=lambda: overlay)
+        with patch("superx_helper.ui.window.Adw.Toast.new", return_value="toast") as toast:
+            SuperXWindow._apply_capability(window, "performance.cpu_boost", True)
+            self.deliver(overlay.add_toast.call_args_list)
+        toast.assert_called_once_with(f"State could not be refreshed: {GLib.Error('daemon gone')}")
+        self.assertTrue(result.success)
+        page.update_from_snapshot.assert_not_called()
+
+
 
 class DeploymentPolicyTests(unittest.TestCase):
     def test_polkit_actions_match_fixed_map_and_require_admin(self):
         root = Path(__file__).resolve().parents[1]
         policy = ET.parse(root / "contrib/polkit/org.sonoran.SuperXHelper.policy").getroot()
         self.assertEqual({action.attrib["id"] for action in policy.findall("action")}, set(CAPABILITY_ACTIONS.values()))
+        self.assertTrue(OWNER_ROUTED_WRITES.isdisjoint(CAPABILITY_ACTIONS))
         for action in policy.findall("action"):
             self.assertEqual(action.findtext("defaults/allow_active"), "auth_admin_keep")
             self.assertEqual(action.findtext("defaults/allow_inactive"), "no")
             self.assertEqual(action.findtext("defaults/allow_any"), "no")
 
-    def test_bus_policy_limits_name_owner_and_console_methods(self):
+    def test_bus_policy_limits_name_owner_and_default_methods(self):
         root = Path(__file__).resolve().parents[1]
         policy = ET.parse(root / "contrib/dbus/org.sonoran.SuperXHelper1.conf").getroot()
         self.assertEqual(policy.find("policy[@user='root']/allow").attrib, {"own": BUS_NAME})
         self.assertIsNotNone(policy.find("policy[@context='default']/deny[@own]"))
-        allows = policy.findall("policy[@at_console='true']/allow")
+        allows = policy.findall("policy[@context='default']/allow")
         self.assertEqual({item.attrib["send_member"] for item in allows}, {"GetSnapshot", "SetCapability"})
+        self.assertEqual(len(allows), 2)
+        self.assertFalse(policy.findall("policy[@at_console]"))
         for item in allows:
             self.assertEqual(item.attrib["send_destination"], BUS_NAME)
             self.assertEqual(item.attrib["send_interface"], INTERFACE)

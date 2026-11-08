@@ -10,7 +10,7 @@ from gi.repository import Gio, GLib
 
 from superx_helper.contracts import CapabilitySnapshot, OperationResult
 from superx_helper.service import SuperXService
-from superx_helper.dbus_service import BUS_NAME, INTERFACE, OBJECT_PATH, POLKIT_TIMEOUT_MS
+from superx_helper.dbus_names import BUS_NAME, INTERFACE, OBJECT_PATH, POLKIT_TIMEOUT_MS
 from superx_helper.policy import OWNER_ROUTED_WRITES
 from superx_helper.transport import operation_result_from_dict, snapshot_from_dict
 
@@ -99,7 +99,7 @@ _apply_worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix="superx-app
 
 def apply_capability_async(
     client: ServiceClient, capability_id: str, value: Any,
-    callback: Callable[[OperationResult, Optional[CapabilitySnapshot]], None],
+    callback: Callable[[OperationResult, Optional[CapabilitySnapshot], Optional[str]], None],
 ):
     """Apply and fetch read-back off-thread; deliver only on GLib's main loop."""
     def work():
@@ -108,14 +108,14 @@ def apply_capability_async(
         except Exception as error:
             result = OperationResult(False, capability_id, value, error_message=f"Write failed: {error}")
         snapshot = None
+        refresh_error = None
         try:
             snapshot = client.get_snapshot()
         except Exception as error:
-            result.success = False
-            result.error_message = (result.error_message or "State may have changed.") + f" Refresh failed: {error}"
+            refresh_error = str(error)
 
         def deliver():
-            callback(result, snapshot)
+            callback(result, snapshot, refresh_error)
             return GLib.SOURCE_REMOVE
 
         GLib.idle_add(deliver)
