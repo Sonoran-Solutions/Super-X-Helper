@@ -168,6 +168,8 @@ No power increase should be paired with first-time fan validation.
 
 ## SX-CORE-004 · Select production APU/TDP mechanism — P1
 
+**Audit complete 2026-11-08:** [docs/TDP_BACKEND_AUDIT.md](docs/TDP_BACKEND_AUDIT.md) pins PowerStation v0.9.0 and oxp-tdpd against the Loadout section-4 rubric and lists the local validation packet. No backend is selected; `performance.power_target` stays read-only until the owner approves a candidate, its kernel module/package, and the validation packet.
+
 Audit Loadout's TDP strategy and current Linux/HHD options before selecting a backend. Preserve Super X Helper's own capability and safety policy. Do not couple Frost Bay detection directly into a legacy TDP backend.
 
 ## SX-CORE-005 · D-Bus/polkit production boundary — P1
@@ -206,6 +208,8 @@ Audit maintained Loadout/HHD/OpenRGB paths before proprietary reverse engineerin
 
 ## SX-UI-009 · Declarative profiles — P1
 
+**Implemented 2026-11-08** (`src/superx_helper/profiles.py`, Profiles page): typed validated profiles persisted under XDG config, selection stored separately from definitions, `apply_profile` gates every field on the fresh record's `can_write`, verifies read-back and rolls back in reverse order on failure. Live fields today: EPP (ppd profile) and brightness. Fan mode and power target are declared but inert; Liquid Performance stays blocked on Frost Bay health.
+
 Profiles remain high-level policy. Transactional apply/rollback is required before multi-setting writes are production-ready.
 
 ## SX-UI-010 · Quick-access panel/hotkey — P1
@@ -222,7 +226,7 @@ Compact second GTK window using the same ServiceClient; reuse maintained input o
 - [ ] internal fan path locally validated with ownership recovery
 - [x] display writes enabled only where proven — brightness via GNOME Settings Daemon, 2026-10-18
 - [ ] battery telemetry and any supported controls
-- [ ] declarative profiles
+- [x] declarative profiles — transactional apply/rollback over qualified capabilities, 2026-11-08
 - [ ] quick-access workflow
 - [x] Mini SSD presence telemetry with NOT_QUALIFIED warning
 - [x] Frost Bay represented as RESEARCH_PENDING without pretending local validation

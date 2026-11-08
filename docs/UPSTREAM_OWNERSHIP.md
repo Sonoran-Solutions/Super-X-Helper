@@ -19,7 +19,7 @@
 | Internal fan | Linux oxpec / oxp_ec hwmon; Loadout fan-control as userspace reference | SUPPORTED_UNVERIFIED; current captured kernel lacks Super X DMI quirk | validate local hwmon, then adapt proven safety/ownership patterns |
 | CPU boost | Linux cpufreq | read observed; write unverified | capability adapter after live validation |
 | EPP | amd-pstate-epp | read observed; write unverified | capability adapter after live validation |
-| APU/TDP | Linux/firmware path to be selected; Loadout TDP + HHD as references | no production-selected local backend | audit first, then choose one evidence-backed adapter/range |
+| APU/TDP | Linux/firmware path to be selected; PowerStation, oxp-tdpd, Loadout TDP + HHD as references ([TDP_BACKEND_AUDIT.md](TDP_BACKEND_AUDIT.md)) | no production-selected local backend | candidates audited 2026-11-08; owner selects one after the validation packet |
 | Battery telemetry | power_supply | READ_ONLY | display telemetry |
 | Charge limit/bypass | oxpec may expose support on relevant layouts; Loadout battery plugin is a reference | not live-validated | do not guess; validate local interface first |
 | Display | compositor/DRM/amdgpu | telemetry observed | integrate without fighting desktop ownership |
