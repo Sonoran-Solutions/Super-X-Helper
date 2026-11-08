@@ -23,6 +23,7 @@ classifiers = [
 ]
 
 [project.scripts]
+superx-helperd = "superx_helper.dbus_service:main"
 superx-diag = "superx_helper.collector:main"
 superx-ui = "superx_helper.ui.app:main"
 superx-app = "superx_helper.ui.app:main"

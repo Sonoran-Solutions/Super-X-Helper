@@ -11,9 +11,26 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gio, GLib
 
-from superx_helper.client import LocalServiceClient, ServiceClient
+from superx_helper.client import DBusServiceClient, LocalServiceClient, ServiceClient, SessionServiceClient
+from superx_helper.dbus_names import BUS_NAME
 from superx_helper.service import SuperXService
 from superx_helper.ui.window import SuperXWindow
+
+
+def select_client() -> ServiceClient:
+    local = LocalServiceClient(SuperXService())
+    try:
+        connection = Gio.bus_get_sync(Gio.BusType.SYSTEM, None)
+        owned = connection.call_sync(
+            "org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus",
+            "NameHasOwner", GLib.Variant("(s)", (BUS_NAME,)),
+            GLib.VariantType.new("(b)"), Gio.DBusCallFlags.NO_AUTO_START, 2000, None,
+        ).unpack()[0]
+        if owned:
+            return SessionServiceClient(DBusServiceClient(connection), local)
+    except GLib.Error:
+        pass
+    return local
 
 
 class SuperXApplication(Adw.Application):
@@ -30,8 +47,7 @@ class SuperXApplication(Adw.Application):
     def do_activate(self) -> None:
         if not self.window:
             if self.client is None:
-                service = SuperXService()
-                self.client = LocalServiceClient(service)
+                self.client = select_client()
 
             self.window = SuperXWindow(self, self.client)
 

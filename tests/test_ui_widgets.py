@@ -2,6 +2,7 @@
 """Unit tests for Super X Helper GTK4 / Libadwaita UI components."""
 
 import unittest
+import time
 
 import gi
 gi.require_version("Gtk", "4.0")
@@ -42,10 +43,12 @@ from superx_helper.ui_manifest import PAGES, PageSpec
 class MockServiceClient:
     def __init__(self, snapshot: CapabilitySnapshot):
         self.snapshot = snapshot
+        self.snapshot_calls = 0
         self.set_calls = []
         self.set_result = None
 
     def get_snapshot(self) -> CapabilitySnapshot:
+        self.snapshot_calls += 1
         return self.snapshot
 
     def set_capability(self, capability_id: str, value) -> OperationResult:
@@ -713,6 +716,11 @@ class TestUiWidgets(unittest.TestCase):
 
         self.assertIsNotNone(window.pages["performance"].on_set)
         window._apply_capability(CapabilityId.CPU_BOOST.value, False)
+        deadline = time.monotonic() + 2
+        while client.snapshot_calls < 2 and time.monotonic() < deadline:
+            GLib.MainContext.default().iteration(False)
+            time.sleep(0.001)
+        self.assertEqual(client.snapshot_calls, 2)
         self.assertEqual(client.set_calls, [(CapabilityId.CPU_BOOST.value, False)])
 
         # Failure surfaces a toast instead of silently swallowing the error.
@@ -722,6 +730,11 @@ class TestUiWidgets(unittest.TestCase):
             error_message="Write rejected by backend",
         )
         window._apply_capability(CapabilityId.CPU_BOOST.value, True)
+        deadline = time.monotonic() + 2
+        while client.snapshot_calls < 3 and time.monotonic() < deadline:
+            GLib.MainContext.default().iteration(False)
+            time.sleep(0.001)
+        self.assertEqual(client.snapshot_calls, 3)
         self.assertIsNotNone(getattr(window, "toast_overlay", None))
 
     def test_repeated_refresh_cycle(self):
