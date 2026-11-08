@@ -1,6 +1,6 @@
 # Super X Helper — Roadmap and Task List
 
-**Last research refresh:** 2026-09-22
+**Last research refresh:** 2026-11-08 (see docs/UPSTREAM_OWNERSHIP.md, "2026-11-08 research refresh")
 
 The roadmap is integration-first and reuse-first. Super X Helper remains an Ubuntu-native GTK daily-driver application; it should not duplicate mature open-source hardware-control work merely because that work lives in a different UI or distro ecosystem.
 
