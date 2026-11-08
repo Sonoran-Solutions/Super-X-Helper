@@ -82,25 +82,36 @@ or the implementation task. Use the distro Python/PyGObject stack and install th
 reviewed Python package through the normal packaging workflow first. Ensure
 `superx-helperd` is root-owned and resolves to the reviewed package in a
 root-owned location; never point the unit at a user-writable checkout or venv.
-The unit assumes `/usr/bin/superx-helperd`; if the package installs elsewhere,
-set the absolute root-owned executable path in an `ExecStart` unit override.
+The unit assumes `/usr/bin/superx-helperd`, where a distro package would put it.
+There is no distro package yet; a pip install into the system Python lands the
+entry point at `/usr/local/bin/superx-helperd` instead, and without an override
+the unit fails with `status=203/EXEC` and restart-loops (observed 2026-11-08).
+`contrib/systemd/superx-helperd-usr-local.conf` is the drop-in for that case.
 Do not run the GUI as root.
 
-From the reviewed source tree, in a root shell:
+From the reviewed source tree (the commands use paths relative to the
+repository root), in a root shell:
 
 ```sh
+pip install --break-system-packages --no-deps .
 install -D -o root -g root -m 0644 contrib/dbus/org.sonoran.SuperXHelper1.conf /etc/dbus-1/system.d/org.sonoran.SuperXHelper1.conf
 install -D -o root -g root -m 0644 contrib/polkit/org.sonoran.SuperXHelper.policy /usr/share/polkit-1/actions/org.sonoran.SuperXHelper.policy
 install -D -o root -g root -m 0644 contrib/systemd/superx-helperd.service /etc/systemd/system/superx-helperd.service
+install -D -o root -g root -m 0644 contrib/systemd/superx-helperd-usr-local.conf /etc/systemd/system/superx-helperd.service.d/exec.conf
 systemctl reload dbus.service
 systemctl daemon-reload
 systemctl enable --now superx-helperd.service
 systemctl status superx-helperd.service
 ```
 
+`--no-deps` keeps the distro PyGObject and PyYAML; the package itself is pure
+Python. Re-run the `pip install` step after pulling a new revision, since the
+daemon runs the installed copy, not the checkout.
+
 polkit watches its actions directory. The unit owns the bus name directly; no
 D-Bus auto-activation file is installed. Launch the app as the ordinary console
-user and check the subtitle. A read-only check from that user's session is:
+user and check the subtitle, which should read `System D-Bus + session owners`.
+A read-only check from that user's session is:
 
 ```sh
 gdbus call --system --dest org.sonoran.SuperXHelper1 --object-path /org/sonoran/SuperXHelper1 --method org.sonoran.SuperXHelper1.GetSnapshot
@@ -125,6 +136,7 @@ To uninstall the boundary, in a root shell:
 
 ```sh
 systemctl disable --now superx-helperd.service
+rm -r /etc/systemd/system/superx-helperd.service.d
 rm /etc/systemd/system/superx-helperd.service
 rm /etc/dbus-1/system.d/org.sonoran.SuperXHelper1.conf
 rm /usr/share/polkit-1/actions/org.sonoran.SuperXHelper.policy
