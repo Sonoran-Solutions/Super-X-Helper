@@ -251,7 +251,7 @@ class ProfileAsyncTests(unittest.TestCase):
         page = SimpleNamespace(
             busy=False, client=client, selected=0,
             profiles=[Profile("Test", "Description", "power-saver", 50)],
-            _render=Mock(), result_label=Mock(), get_root=lambda: None,
+            _render=Mock(), result_label=Mock(), _closed=False,
             on_refresh=Mock(), update_from_snapshot=Mock(),
         )
         page._finished = lambda result: ProfilesPage._finished(page, result)
@@ -306,6 +306,9 @@ class ProfileAsyncTests(unittest.TestCase):
         self.assertEqual(client.get_snapshot().by_id("performance.epp").observed_value, "performance")
         with self.assertLogs("superx_helper.ui.pages.profiles", level="WARNING"):
             callbacks[0][0](*callbacks[0][1:])
+        self.assertEqual(page.result_label.set_text.call_count, 2)
+        page.on_refresh.assert_called_once()
+        self.assertEqual(page._render.call_count, 2)
 
     def test_application_hold_released_on_main_loop_even_without_root(self):
         from superx_helper.client import submit_serial
@@ -316,6 +319,7 @@ class ProfileAsyncTests(unittest.TestCase):
                 if outcome == "rollback":
                     client.fail_at = 2
                 page = self.page(client)
+                page._closed = True
                 application = SimpleNamespace(holds=0)
                 main_thread = threading.get_ident()
                 threads = []
@@ -426,8 +430,7 @@ class ProfileUiTests(unittest.TestCase):
             self.assertTrue(done.wait(2))
         self.assertNotEqual(thread_ids, [threading.get_ident()])
         self.assertTrue(page.busy)
-        with patch.object(page, "get_root", return_value=Mock()):
-            callbacks[0][0](callbacks[0][1])
+        callbacks[0][0](callbacks[0][1])
         self.assertFalse(page.busy)
         self.assertIn("applied", page.result_label.get_text())
 

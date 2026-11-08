@@ -50,8 +50,13 @@ class SuperXApplication(Adw.Application):
                 self.client = select_client()
 
             self.window = SuperXWindow(self, self.client)
+            self.window.connect("close-request", self._on_window_close)
 
         self.window.present()
+
+    def _on_window_close(self, _window) -> bool:
+        self.window = None
+        return False
 
 
 def main(args: Optional[list[str]] = None) -> int:

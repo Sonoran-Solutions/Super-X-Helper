@@ -3,6 +3,9 @@
 
 import unittest
 import time
+import threading
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 import gi
 gi.require_version("Gtk", "4.0")
@@ -38,6 +41,11 @@ from superx_helper.ui.widgets import (
 )
 from superx_helper.ui.window import SuperXWindow
 from superx_helper.ui_manifest import PAGES, PageSpec
+
+try:
+    from .test_profiles import FakeClient, Profile
+except ImportError:
+    from test_profiles import FakeClient, Profile
 
 
 class MockServiceClient:
@@ -499,6 +507,79 @@ class TestUiWidgets(unittest.TestCase):
             self.assertNotIn(banned, joined)
         self.assertIn("intent:", joined)
         self.assertIn("blocked until frost bay", joined)
+
+    def test_profile_apply_completion_after_window_close(self):
+        from superx_helper.client import submit_serial
+
+        client = FakeClient()
+        client.fail_at = 2
+        entered, unblock = threading.Event(), threading.Event()
+        original_set = client.set_capability
+
+        def blocked_set(cid, value):
+            if cid == "display.brightness" and value == 50:
+                entered.set()
+                if not unblock.wait(5):
+                    raise RuntimeError("test did not unblock profile")
+            return original_set(cid, value)
+
+        client.set_capability = blocked_set
+        page = ProfilesPage()
+        page.profiles = [Profile("Test", "Description", "power-saver", 50)]
+        page.selected = 0
+        refresh = Mock()
+        page.set_client(client, refresh)
+        page.update_from_snapshot(client.get_snapshot())
+        window = Gtk.Window(child=page)
+        application = SimpleNamespace(holds=0)
+        application.hold = Mock(side_effect=lambda: setattr(application, "holds", application.holds + 1))
+        application.release = Mock(side_effect=lambda: setattr(application, "holds", application.holds - 1))
+        futures = []
+
+        def submit(work):
+            future = submit_serial(work)
+            futures.append(future)
+            return future
+
+        with patch("superx_helper.ui.pages.profiles.Gio.Application.get_default", return_value=application), \
+                patch("superx_helper.ui.pages.profiles.submit_serial", side_effect=submit):
+            try:
+                window.present()
+                deadline = time.monotonic() + 5
+                while not page.get_realized() and time.monotonic() < deadline:
+                    GLib.MainContext.default().iteration(False)
+                    time.sleep(0.001)
+                self.assertTrue(page.get_realized())
+                page._apply(None)
+                self.assertTrue(entered.wait(1))
+                self.assertFalse(page._closed)
+                self.assertEqual(application.holds, 1)
+                before_close = page.result_label.get_text()
+                self.assertEqual(before_close, "Applying profile…")
+                window.destroy()
+                self.assertTrue(page._closed)
+                unblock.set()
+                deadline = time.monotonic() + 5
+                while application.holds and time.monotonic() < deadline:
+                    GLib.MainContext.default().iteration(False)
+                    time.sleep(0.001)
+                self.assertEqual(application.holds, 0)
+                application.hold.assert_called_once()
+                application.release.assert_called_once()
+                self.assertFalse(page.busy)
+                self.assertEqual(page.result_label.get_text(), before_close)
+                refresh.assert_not_called()
+                self.assertEqual(client.calls, [
+                    ("performance.epp", "power-saver"), ("display.brightness", 50),
+                    ("display.brightness", 70), ("performance.epp", "balanced"),
+                ])
+                self.assertEqual(client.get_snapshot().by_id("display.brightness").observed_value, 70)
+                self.assertEqual(client.get_snapshot().by_id("performance.epp").observed_value, "balanced")
+            finally:
+                unblock.set()
+                for future in futures:
+                    future.result(timeout=5)
+                window.destroy()
 
     def test_mini_ssd_status_card_dynamic_derivation_and_missing_data(self):
         snapshot = create_real_service_shaped_snapshot()

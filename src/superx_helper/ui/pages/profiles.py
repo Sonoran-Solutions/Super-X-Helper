@@ -25,6 +25,9 @@ LOG = logging.getLogger(__name__)
 class ProfilesPage(BasePage):
     def __init__(self, spec: PageSpec | None = None):
         super().__init__(spec or PageSpec("profiles", "Profiles", []))
+        self._closed = False
+        self.connect("unrealize", lambda _: setattr(self, "_closed", True))
+        self.connect("realize", lambda _: setattr(self, "_closed", False))
         self.profiles = load_profiles()
         selected = load_selected_profile()
         self.selected = next((i for i, p in enumerate(self.profiles) if p.name == selected), 1 if len(self.profiles) > 1 else 0)
@@ -175,7 +178,7 @@ class ProfilesPage(BasePage):
         if result.rollback_attempted:
             lines.append("Rollback fully verified." if result.rollback_succeeded else "Rollback incomplete; check observed state.")
         (LOG.info if result.success else LOG.warning)("%s", "\n".join(lines))
-        if self.get_root() is None:
+        if self._closed:
             return GLib.SOURCE_REMOVE
         self.result_label.set_text("\n".join(lines))
         try:
