@@ -174,9 +174,11 @@ Audit Loadout's TDP strategy and current Linux/HHD options before selecting a ba
 
 ## SX-CORE-005 · D-Bus/polkit production boundary — P1
 
+**Implemented 2026-11-08, not yet installed:** `superx-helperd` (`src/superx_helper/dbus_service.py`) owns `org.sonoran.SuperXHelper1` on the system bus with `GetSnapshot`/`SetCapability`, fixed polkit actions, strict value validation and fail-closed behavior; the GTK app selects a router client that keeps desktop-owner writes (EPP, brightness) in the user session and applies writes off the main thread. Install steps for the user in [docs/DBUS_BOUNDARY.md](docs/DBUS_BOUNDARY.md). No privileged capability is authorized through it yet; CPU boost and the fan will be the first once qualified. The systemd unit currently makes sysfs read-only and must be relaxed deliberately when a sysfs writer is qualified.
+
 Install only after at least one write capability has passed local validation.
 
-Follow-up (from PR 23 review): `SuperXWindow._apply_capability` calls the service synchronously on the GTK main thread, and the brightness read-back poll can sleep up to ~1 s. When this boundary lands, make the client call async and keep the poll in the service.
+Follow-up (from PR 23 review): `SuperXWindow._apply_capability` calls the service synchronously on the GTK main thread, and the brightness read-back poll can sleep up to ~1 s. When this boundary lands, make the client call async and keep the poll in the service. — DONE 2026-11-08 (`apply_capability_async`).
 
 ## SX-UI-002 · Dashboard polish — P1
 
