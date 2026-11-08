@@ -118,6 +118,8 @@ class SuperXWindow(Adw.ApplicationWindow):
             page = self._create_page_instance(spec)
             if hasattr(page, "set_writer"):
                 page.set_writer(self._apply_capability)
+            if isinstance(page, ProfilesPage):
+                page.set_client(self.client, self.refresh)
             self.pages[spec.page_id] = page
             self.view_stack.add_titled(page, spec.page_id, spec.title)
 
