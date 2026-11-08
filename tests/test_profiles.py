@@ -4,8 +4,9 @@ import os
 from pathlib import Path
 import tempfile
 import threading
+from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from superx_helper.contracts import CapabilityRecord, CapabilitySnapshot, CapabilityStatus, OperationResult
 from superx_helper.profiles import (
@@ -93,6 +94,19 @@ class PersistenceTests(unittest.TestCase):
                 save_profiles([Profile("Other", "Description")])
         self.assertEqual(path.read_bytes(), before)
         self.assertEqual([p.name for p in path.parent.iterdir()], ["profiles.yaml"])
+
+    def test_recursive_yaml_falls_back_in_both_loaders(self):
+        path = Path(self.temp.name) / "superx-helper"
+        path.mkdir()
+        data = "[" * 1000 + "0" + "]" * 1000
+        for filename, loader, fallback in (
+            ("profiles.yaml", load_profiles, list(DEFAULT_PROFILES)),
+            ("profile-state.yaml", load_selected_profile, None),
+        ):
+            with self.subTest(filename=filename):
+                (path / filename).write_text(data)
+                with self.assertLogs("superx_helper.profiles", level="WARNING"):
+                    self.assertEqual(loader(), fallback)
 
     def test_duplicate_names_rejected(self):
         with self.assertRaises(ValueError):
@@ -223,6 +237,139 @@ class ApplyTests(unittest.TestCase):
         self.assertEqual(result.steps[1].status, "skipped")
 
 
+class ProfileAsyncTests(unittest.TestCase):
+    """Exercise the page callbacks without constructing GTK widgets or a bus."""
+
+    def setUp(self):
+        from gi.repository import Gio
+        guard = patch.object(Gio, "bus_get_sync", side_effect=AssertionError("real bus"))
+        guard.start()
+        self.addCleanup(guard.stop)
+
+    def page(self, client):
+        from superx_helper.ui.pages.profiles import ProfilesPage
+        page = SimpleNamespace(
+            busy=False, client=client, selected=0,
+            profiles=[Profile("Test", "Description", "power-saver", 50)],
+            _render=Mock(), result_label=Mock(), get_root=lambda: None,
+            on_refresh=Mock(), update_from_snapshot=Mock(),
+        )
+        page._finished = lambda result: ProfilesPage._finished(page, result)
+        return page
+
+    def test_profile_rollback_finishes_before_ordinary_write(self):
+        from superx_helper.client import apply_capability_async, submit_serial
+        from superx_helper.ui.pages.profiles import ProfilesPage
+        client = FakeClient()
+        client.fail_at = 2
+        entered, release = threading.Event(), threading.Event()
+        ordinary_executed = threading.Event()
+        original_set = client.set_capability
+
+        def blocked_set(cid, value):
+            if cid == "display.brightness" and value == 50:
+                entered.set()
+                if not release.wait(2):
+                    raise RuntimeError("test did not release profile")
+            if value == "performance":
+                ordinary_executed.set()
+            return original_set(cid, value)
+
+        client.set_capability = blocked_set
+        page = self.page(client)
+        callbacks = []
+        queued = []
+
+        def submit(work):
+            future = submit_serial(work)
+            queued.append(future)
+            return future
+
+        with patch("superx_helper.ui.pages.profiles.Gio.Application.get_default", return_value=None), \
+                patch("superx_helper.ui.pages.profiles.submit_serial", side_effect=submit), \
+                patch("superx_helper.client.GLib.idle_add", side_effect=lambda *args: callbacks.append(args)):
+            try:
+                ProfilesPage._apply(page, None)
+                self.assertTrue(entered.wait(1))
+                ordinary = apply_capability_async(client, "performance.epp", "performance", Mock())
+                self.assertFalse(ordinary_executed.wait(0.05))
+            finally:
+                release.set()
+                for future in queued:
+                    future.result(timeout=2)
+            ordinary.result(timeout=2)
+        self.assertEqual(client.calls, [
+            ("performance.epp", "power-saver"), ("display.brightness", 50),
+            ("display.brightness", 70), ("performance.epp", "balanced"),
+            ("performance.epp", "performance"),
+        ])
+        self.assertEqual(client.get_snapshot().by_id("performance.epp").observed_value, "performance")
+        with self.assertLogs("superx_helper.ui.pages.profiles", level="WARNING"):
+            callbacks[0][0](*callbacks[0][1:])
+
+    def test_application_hold_released_on_main_loop_even_without_root(self):
+        from superx_helper.client import submit_serial
+        from superx_helper.ui.pages.profiles import ProfilesPage
+        for outcome in ("success", "rollback", "exception", "submission failure"):
+            with self.subTest(outcome=outcome):
+                client = FakeClient()
+                if outcome == "rollback":
+                    client.fail_at = 2
+                page = self.page(client)
+                application = SimpleNamespace(holds=0)
+                main_thread = threading.get_ident()
+                threads = []
+
+                def hold():
+                    self.assertEqual(threading.get_ident(), main_thread)
+                    application.holds += 1
+
+                def release():
+                    self.assertEqual(threading.get_ident(), main_thread)
+                    application.holds -= 1
+
+                application.hold, application.release = Mock(side_effect=hold), Mock(side_effect=release)
+                callbacks, futures = [], []
+
+                def submit(work):
+                    if outcome == "submission failure":
+                        raise RuntimeError("executor stopped")
+                    future = submit_serial(work)
+                    futures.append(future)
+                    return future
+
+                def apply(fake, profile):
+                    threads.append(threading.current_thread().name)
+                    if outcome == "exception":
+                        raise RuntimeError("unexpected failure")
+                    return apply_profile(fake, profile)
+
+                with patch("superx_helper.ui.pages.profiles.Gio.Application.get_default", return_value=application), \
+                        patch("superx_helper.ui.pages.profiles.submit_serial", side_effect=submit), \
+                        patch("superx_helper.ui.pages.profiles.apply_profile", side_effect=apply), \
+                        patch("superx_helper.ui.pages.profiles.GLib.idle_add", side_effect=lambda *args: callbacks.append(args)), \
+                        self.assertLogs("superx_helper.ui.pages.profiles", level="INFO") as logs:
+                    ProfilesPage._apply(page, None)
+                    for future in futures:
+                        future.result(timeout=2)
+                    if futures:
+                        self.assertEqual(application.holds, 1)
+                        self.assertTrue(threads[0].startswith("superx-apply"))
+                        self.assertEqual(len(callbacks), 1)
+                        callback, result = callbacks[0]
+                        if outcome == "rollback":
+                            self.assertTrue(result.rollback_succeeded)
+                        callback(result)
+                application.hold.assert_called_once()
+                application.release.assert_called_once()
+                self.assertEqual(application.holds, 0)
+                self.assertFalse(page.busy)
+                page.result_label.set_text.assert_called_once_with("Applying profile…")
+                page._render.assert_called_once()
+                page.on_refresh.assert_not_called()
+                self.assertIn("Profile applied." if outcome == "success" else "Profile was not applied.", logs.output[0])
+
+
 class ProfileUiTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -279,7 +426,8 @@ class ProfileUiTests(unittest.TestCase):
             self.assertTrue(done.wait(2))
         self.assertNotEqual(thread_ids, [threading.get_ident()])
         self.assertTrue(page.busy)
-        callbacks[0][0](callbacks[0][1])
+        with patch.object(page, "get_root", return_value=Mock()):
+            callbacks[0][0](callbacks[0][1])
         self.assertFalse(page.busy)
         self.assertIn("applied", page.result_label.get_text())
 

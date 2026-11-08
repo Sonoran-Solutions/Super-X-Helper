@@ -118,7 +118,7 @@ def load_profiles() -> list[Profile]:
             return _validated_profiles(yaml.safe_load(stream))
     except FileNotFoundError:
         return [Profile.from_dict(asdict(p)) for p in DEFAULT_PROFILES]
-    except (OSError, ValueError, yaml.YAMLError) as exc:
+    except (OSError, ValueError, yaml.YAMLError, RecursionError) as exc:
         LOG.warning("Cannot load profiles; using built-in defaults: %s", exc)
         return [Profile.from_dict(asdict(p)) for p in DEFAULT_PROFILES]
 
@@ -144,7 +144,7 @@ def load_selected_profile() -> str | None:
         return data["selected"]
     except FileNotFoundError:
         return None
-    except (OSError, ValueError, yaml.YAMLError) as exc:
+    except (OSError, ValueError, yaml.YAMLError, RecursionError) as exc:
         LOG.warning("Cannot load profile selection: %s", exc)
         return None
 

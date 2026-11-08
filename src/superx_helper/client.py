@@ -97,6 +97,11 @@ class SessionServiceClient:
 _apply_worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix="superx-apply")
 
 
+def submit_serial(fn: Callable):
+    """Queue a whole transaction alongside ordinary apply/read-back requests."""
+    return _apply_worker.submit(fn)
+
+
 def apply_capability_async(
     client: ServiceClient, capability_id: str, value: Any,
     callback: Callable[[OperationResult, Optional[CapabilitySnapshot], Optional[str]], None],
@@ -120,4 +125,4 @@ def apply_capability_async(
 
         GLib.idle_add(deliver)
 
-    return _apply_worker.submit(work)
+    return submit_serial(work)

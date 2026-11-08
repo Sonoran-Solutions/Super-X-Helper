@@ -152,5 +152,7 @@ reverse-order, verified restoration, including the failed attempt because it
 may have partially changed state. Rollback rechecks authorization and reports
 incomplete recovery explicitly. Skips and rollback outcomes are shown per field;
 a successful partial apply still lists inert fields. Profile transactions are
-serialized within this process; arbitration with other clients belongs to the
-service/owner. Definitions and selected intent are never observed hardware state.
+queued as one unit on the same serial write queue as ordinary writes in this
+process; arbitration with other clients belongs to the service/owner. The app
+stays alive until the transaction and any rollback finish and completion is
+delivered on the main loop. Definitions and selected intent are never observed hardware state.

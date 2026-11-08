@@ -2,15 +2,15 @@
 from __future__ import annotations
 
 from dataclasses import replace
-import threading
+import logging
 from typing import Callable
 
 import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, GLib, Gtk
+from gi.repository import Adw, Gio, GLib, Gtk
 
-from superx_helper.client import ServiceClient
+from superx_helper.client import ServiceClient, submit_serial
 from superx_helper.contracts import CapabilitySnapshot
 from superx_helper.profiles import (
     EPP_VALUES, ProfileApplyResult, apply_profile, load_profiles,
@@ -18,6 +18,8 @@ from superx_helper.profiles import (
 )
 from superx_helper.ui.pages.base import BasePage
 from superx_helper.ui_manifest import PageSpec
+
+LOG = logging.getLogger(__name__)
 
 
 class ProfilesPage(BasePage):
@@ -135,12 +137,28 @@ class ProfilesPage(BasePage):
         profile, client = self.profiles[self.selected], self.client
         self._render()
         self.result_label.set_text("Applying profile…")
+        application = Gio.Application.get_default()
+        if application is not None:
+            application.hold()
+
+        def completed(result):
+            try:
+                return self._finished(result)
+            finally:
+                if application is not None:
+                    application.release()
 
         def work():
-            result = apply_profile(client, profile)
-            GLib.idle_add(self._finished, result)
+            try:
+                result = apply_profile(client, profile)
+            except Exception as exc:
+                result = ProfileApplyResult([], error_message=f"Profile apply failed: {exc}")
+            GLib.idle_add(completed, result)
 
-        threading.Thread(target=work, daemon=True, name="profile-apply").start()
+        try:
+            submit_serial(work)
+        except Exception as exc:
+            completed(ProfileApplyResult([], error_message=f"Profile could not be queued: {exc}"))
 
     def _finished(self, result: ProfileApplyResult) -> bool:
         self.busy = False
@@ -156,6 +174,9 @@ class ProfilesPage(BasePage):
             lines.append(text)
         if result.rollback_attempted:
             lines.append("Rollback fully verified." if result.rollback_succeeded else "Rollback incomplete; check observed state.")
+        (LOG.info if result.success else LOG.warning)("%s", "\n".join(lines))
+        if self.get_root() is None:
+            return GLib.SOURCE_REMOVE
         self.result_label.set_text("\n".join(lines))
         try:
             if self.on_refresh:
