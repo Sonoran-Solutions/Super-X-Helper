@@ -1,6 +1,6 @@
 # Super X Helper — Roadmap and Task List
 
-**Last research refresh:** 2026-09-22
+**Last research refresh:** 2026-11-08 (see docs/UPSTREAM_OWNERSHIP.md, "2026-11-08 research refresh")
 
 The roadmap is integration-first and reuse-first. Super X Helper remains an Ubuntu-native GTK daily-driver application; it should not duplicate mature open-source hardware-control work merely because that work lives in a different UI or distro ecosystem.
 
@@ -168,13 +168,17 @@ No power increase should be paired with first-time fan validation.
 
 ## SX-CORE-004 · Select production APU/TDP mechanism — P1
 
+**Audit complete 2026-11-08:** [docs/TDP_BACKEND_AUDIT.md](docs/TDP_BACKEND_AUDIT.md) pins PowerStation v0.9.0 and oxp-tdpd against the Loadout section-4 rubric and lists the local validation packet. No backend is selected; `performance.power_target` stays read-only until the owner approves a candidate, its kernel module/package, and the validation packet.
+
 Audit Loadout's TDP strategy and current Linux/HHD options before selecting a backend. Preserve Super X Helper's own capability and safety policy. Do not couple Frost Bay detection directly into a legacy TDP backend.
 
 ## SX-CORE-005 · D-Bus/polkit production boundary — P1
 
+**Implemented 2026-11-08, not yet installed:** `superx-helperd` (`src/superx_helper/dbus_service.py`) owns `org.sonoran.SuperXHelper1` on the system bus with `GetSnapshot`/`SetCapability`, fixed polkit actions, strict value validation and fail-closed behavior; the GTK app selects a router client that keeps desktop-owner writes (EPP, brightness) in the user session and applies writes off the main thread. Install steps for the user in [docs/DBUS_BOUNDARY.md](docs/DBUS_BOUNDARY.md). No privileged capability is authorized through it yet; CPU boost and the fan will be the first once qualified. The systemd unit currently makes sysfs read-only and must be relaxed deliberately when a sysfs writer is qualified.
+
 Install only after at least one write capability has passed local validation.
 
-Follow-up (from PR 23 review): `SuperXWindow._apply_capability` calls the service synchronously on the GTK main thread, and the brightness read-back poll can sleep up to ~1 s. When this boundary lands, make the client call async and keep the poll in the service.
+Follow-up (from PR 23 review): `SuperXWindow._apply_capability` calls the service synchronously on the GTK main thread, and the brightness read-back poll can sleep up to ~1 s. When this boundary lands, make the client call async and keep the poll in the service. — DONE 2026-11-08 (`apply_capability_async`).
 
 ## SX-UI-002 · Dashboard polish — P1
 
@@ -206,6 +210,8 @@ Audit maintained Loadout/HHD/OpenRGB paths before proprietary reverse engineerin
 
 ## SX-UI-009 · Declarative profiles — P1
 
+**Implemented 2026-11-08** (`src/superx_helper/profiles.py`, Profiles page): typed validated profiles persisted under XDG config, selection stored separately from definitions, `apply_profile` gates every field on the fresh record's `can_write`, verifies read-back and rolls back in reverse order on failure. Live fields today: EPP (ppd profile) and brightness. Fan mode and power target are declared but inert; Liquid Performance stays blocked on Frost Bay health.
+
 Profiles remain high-level policy. Transactional apply/rollback is required before multi-setting writes are production-ready.
 
 ## SX-UI-010 · Quick-access panel/hotkey — P1
@@ -222,7 +228,7 @@ Compact second GTK window using the same ServiceClient; reuse maintained input o
 - [ ] internal fan path locally validated with ownership recovery
 - [x] display writes enabled only where proven — brightness via GNOME Settings Daemon, 2026-10-18
 - [ ] battery telemetry and any supported controls
-- [ ] declarative profiles
+- [x] declarative profiles — transactional apply/rollback over qualified capabilities, 2026-11-08
 - [ ] quick-access workflow
 - [x] Mini SSD presence telemetry with NOT_QUALIFIED warning
 - [x] Frost Bay represented as RESEARCH_PENDING without pretending local validation

@@ -349,7 +349,7 @@ This instrumentation adds evidence only. It does not change the reliability stat
 
 **Stop and record if:** a loss episode occurs (record it as OBS with the sampler context), or another variable changes (kernel, BIOS, ASPM, slot or reseat).
 
-**Pass bar:** 60 days without a loss episode, ending no earlier than 2026-01-04. At the observed rate of about one episode every 3–4 weeks, a gap that long by chance is about 10% likely. Passing supports this mitigation but does not tick the reliability qualification. The drive stays `NOT_QUALIFIED`.
+**Pass bar:** 60 days without a loss episode, ending no earlier than 2027-01-04. At the observed rate of about one episode every 3–4 weeks, a gap that long by chance is about 10% likely. Passing supports this mitigation but does not tick the reliability qualification. The drive stays `NOT_QUALIFIED`.
 
 **Notes:**
 - The drive was dead from the 2026-10-31 17:43 loss until that boot ended on 2026-11-05 06:09. The next boot enumerated it normally without a reseat, as after every earlier loss.

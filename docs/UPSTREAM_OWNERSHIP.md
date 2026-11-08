@@ -1,6 +1,6 @@
 # Super X Helper — Upstream Controls & Ownership Reference
 
-**Last reviewed:** 2026-09-22
+**Last reviewed:** 2026-09-22 · research refresh 2026-11-08 (see below)
 
 **Status:** upstream ownership/reuse baseline. Nothing in this document implicitly authorizes a hardware write on the local Super X.
 
@@ -19,7 +19,7 @@
 | Internal fan | Linux oxpec / oxp_ec hwmon; Loadout fan-control as userspace reference | SUPPORTED_UNVERIFIED; current captured kernel lacks Super X DMI quirk | validate local hwmon, then adapt proven safety/ownership patterns |
 | CPU boost | Linux cpufreq | read observed; write unverified | capability adapter after live validation |
 | EPP | amd-pstate-epp | read observed; write unverified | capability adapter after live validation |
-| APU/TDP | Linux/firmware path to be selected; Loadout TDP + HHD as references | no production-selected local backend | audit first, then choose one evidence-backed adapter/range |
+| APU/TDP | Linux/firmware path to be selected; PowerStation, oxp-tdpd, Loadout TDP + HHD as references ([TDP_BACKEND_AUDIT.md](TDP_BACKEND_AUDIT.md)) | no production-selected local backend | candidates audited 2026-11-08; owner selects one after the validation packet |
 | Battery telemetry | power_supply | READ_ONLY | display telemetry |
 | Charge limit/bypass | oxpec may expose support on relevant layouts; Loadout battery plugin is a reference | not live-validated | do not guess; validate local interface first |
 | Display | compositor/DRM/amdgpu | telemetry observed | integrate without fighting desktop ownership |
@@ -160,3 +160,16 @@ Before starting work in any of these areas, search this document and the linked 
 - Frost Bay BLE
 
 If maintained upstream code already solves the generic problem, the task becomes **audit + adapt + locally validate**, not **invent from scratch**.
+
+## 2026-11-08 research refresh
+
+Full packet with URLs and evidence levels: [research/2026-11-08-upstream-refresh.md](research/2026-11-08-upstream-refresh.md). Plan-relevant changes:
+
+| Area | New evidence | Effect on this document |
+|---|---|---|
+| Internal fan (oxpec) | Super X mapping is in mainline **7.2+**; noble HWE is still 7.0. Ubuntu mainline 7.3.3 is a concrete test-boot candidate; two out-of-tree DKMS packagings exist (one PR still open). | `SX-CORE-002` kernel selection is now a choice between a mainline test boot and a DKMS build, not a wait. Either is a root task with a rollback boot entry. |
+| APU/TDP | **PowerStation** (ShadowBlip, v0.9.0) is a UI-independent D-Bus service with documented interfaces and Strix Halo fixes; **oxp-tdpd** reads PM-table limits back and documents mailbox contention; AMD DPTCi kernel RFC exists but is not in stock Ubuntu. | `SX-CORE-004` audit candidates are now PowerStation and oxp-tdpd ahead of a home-grown RyzenAdj adapter. Loadout TDP remains a pattern reference. Super X limits stay unqualified. |
+| Frost Bay | No merged HHD plugin, no new reimplementation. BlueZ issue #2155 ties the incomplete-GATT failure to Intel AX210, not MT7925. | No change; local BlueZ reproduction (`SX-FB-002`) still first. Do not pre-judge the built-in adapter from Apex evidence. |
+| Mini SSD | No `1dee` NVMe quirk upstream; no CL100 root cause or firmware changelog; other BIWIN reports are different part numbers. | No change; `EXP-2026-11-05-01` continues. Its 60-day endpoint is 2027-01-04. |
+| Battery/RGB/controller | hhd #329 reports working Super X charge limit/bypass with patches and the Turbo chord (Ctrl+Meta+Alt); kernel `hid-oxp` is an RGB/button owner candidate. | Battery qualification can ride on the oxpec bring-up. Audit `hid-oxp` before any RGB work. |
+| Service/UI design | PowerStation interface XML and TLP Panel's fixed polkit-verb helper are the closest references for `SX-CORE-005`. Ryzenadj-gtk uses sudoers; not a reference. | Read both before designing the superx-helperd D-Bus/polkit boundary. |

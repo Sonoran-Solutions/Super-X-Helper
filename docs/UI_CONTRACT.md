@@ -134,3 +134,26 @@ The frontend depends on `ServiceClient.get_snapshot()`.
 During early UI work use `LocalServiceClient`. Production will add a D-Bus implementation of the same contract.
 
 The UI should not care whether a snapshot came from an in-process development client or the privileged D-Bus service.
+
+## Profiles
+
+`profiles.py` stores validated declarative definitions in
+`$XDG_CONFIG_HOME/superx-helper/profiles.yaml` (default `~/.config`). Selection
+is separate in `profile-state.yaml`; neither file triggers startup replay.
+Only `epp` (ppd profile names) and integer `brightness` (5–100 percent) can apply,
+and only when a fresh capability record reports `can_write`. The UI labels ppd
+`performance` as power-increasing and not exercised live. Future fan modes and
+wattage remain inert. Liquid Performance stays blocked on unqualified Frost Bay
+health/fallback semantics.
+
+Apply runs outside the GTK main thread through `ServiceClient`. Each write is
+verified from a fresh snapshot. Failure stops subsequent steps and attempts
+reverse-order, verified restoration, including the failed attempt because it
+may have partially changed state. Rollback rechecks authorization and reports
+incomplete recovery explicitly. Skips and rollback outcomes are shown per field;
+a successful partial apply still lists inert fields. Profile transactions are
+queued as one unit on the same serial write queue as ordinary writes in this
+process; arbitration with other clients belongs to the service/owner. The app
+stays alive until the transaction and any rollback finish and completion is
+delivered on the main loop. Definitions and selected intent are never observed hardware state.
+Completion of a profile transaction is not delivered to a closed window; the transaction and its rollback still finish.
