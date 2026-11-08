@@ -9,7 +9,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk
 
-from superx_helper.client import ServiceClient
+from superx_helper.client import ServiceClient, apply_capability_async
 from superx_helper.contracts import CapabilitySnapshot
 from superx_helper.ui.pages import (
     BasePage,
@@ -61,7 +61,7 @@ class SuperXWindow(Adw.ApplicationWindow):
         self.header_bar = Adw.HeaderBar()
         title_widget = Adw.WindowTitle(
             title="Super X Helper",
-            subtitle="ONEXPLAYER Super X • Linux Control Center",
+            subtitle=f"ONEXPLAYER Super X • {getattr(self.client, 'mode', 'Local session')}",
         )
         self.header_bar.set_title_widget(title_widget)
 
@@ -190,11 +190,16 @@ class SuperXWindow(Adw.ApplicationWindow):
 
     def _apply_capability(self, capability_id: str, value: Any) -> None:
         """Request a capability write, then re-render from the read-back state."""
-        result = self.client.set_capability(capability_id, value)
-        if not result.success:
-            message = result.error_message or f"Could not update {capability_id}."
-            self._toast_overlay().add_toast(Adw.Toast.new(message))
-        GLib.idle_add(self._refresh_idle)
+        def completed(result, snapshot):
+            if not result.success:
+                message = result.error_message or f"Could not update {capability_id}."
+                self._toast_overlay().add_toast(Adw.Toast.new(message))
+            if snapshot is not None:
+                for page in self.pages.values():
+                    if hasattr(page, "update_from_snapshot"):
+                        page.update_from_snapshot(snapshot)
+
+        apply_capability_async(self.client, capability_id, value, completed)
 
     def _refresh_idle(self) -> bool:
         self.refresh()
