@@ -181,7 +181,7 @@ Only add a test when its data is useful for discriminating a hypothesis.
 
 **Prediction:** PCIe endpoint remains while controller resets/timeouts or namespace disappears; kernel logs show NVMe-level failure.
 
-**Status:** HYPOTHESIS — local evidence (OBS-2026-08-29-01, OBS-2026-09-19-01) is consistent with H2/H3: every loss is the same signature (`CSTS=0xffffffff`, command register cleared, reset fails with `-19`). Not yet discriminated from H2 or H6.
+**Status:** HYPOTHESIS — local evidence (OBS-2026-08-29-01, OBS-2026-09-19-01) is consistent with H2/H3: every loss is the same signature (`CSTS=0xffffffff`, command register cleared, reset fails with `-19`). Not yet discriminated from H2 or H6. The APST form of H3 is ruled out by OBS-2026-11-15-01 (loss with APST off).
 
 ### H4 — thermal instability
 
@@ -322,7 +322,7 @@ This instrumentation adds evidence only. It does not change the reliability stat
 
 ## Experiment log
 
-### EXP-2026-11-05-01 — APST disabled (in progress)
+### EXP-2026-11-05-01 — APST disabled (ended 2026-11-15: loss occurred)
 
 **Question:** Does disabling NVMe autonomous power state transitions (APST) stop the controller losses?
 
@@ -356,11 +356,55 @@ This instrumentation adds evidence only. It does not change the reliability stat
 - Not auto-mounted after boot: udisks marks the drive `HintSystem=true`, `HintAuto=false` (internal NVMe, not removable), so it must be mounted from Files or `udisksctl mount`. That is how it has always behaved, not a symptom of failure.
 - Until the installed helper is reinstalled from `main` (after #26), sampler rows still lack `controller_state` and log a dead controller as `NVME_PRESENT`; a null `temperature_c` remains the loss marker for those rows.
 
-**Observed result:** pending.
+**Observed result:** a loss episode on 2026-11-15 12:45 MST, 9 d 20 h into the boot, with the parameter still `0` (OBS-2026-11-15-01). Prediction failed.
 
-**Conclusion:** HYPOTHESIS (in progress).
+**Conclusion:** REJECTED for "APST transitions are required for the loss". Caveat: `default_ps_max_latency_us=0` was confirmed in the module parameter, but the drive's APST feature was not read back (`nvme get-feature` needs root), so this rests on upstream driver behavior.
 
-**Next smallest discriminating experiment:** if a loss occurs with APST off, APST is ruled out. Restore `100000` and test ASPM L1.2 alone.
+**Next smallest discriminating experiment:** restore `100000` and test ASPM L1.2 alone, as planned. Not started.
+
+### OBS-2026-11-15-01 — Controller loss with APST off, mounted and idle (passive observation)
+
+Reviewed 2026-11-15, read-only, with the controller still `dead`. Fifth loss episode, same signature as the other four.
+
+**Baseline:**
+- kernel `7.0.0-42-generic`, BIOS `V1.01`, boot started 2026-11-05 16:18 MST, Mini SSD `nvme1`
+- `nvme_core.default_ps_max_latency_us=0`; ASPM policy `default`, endpoint L1/L1.1/L1.2 and `clkpm` enabled, `d3cold_allowed=1`
+- two suspends in this boot; last resume 2026-11-08 06:57 MST, 7 d 6 h before the loss
+- ext4 mounted r/w since 2026-11-05 16:29; 1824 reads and 39 writes since boot; counters last moved 2026-11-10 21:18 MST, 4.6 days before the loss
+- Frost Bay: not involved
+
+**Captured evidence (kernel log and sampler, 2026-11-15 MST):**
+
+```text
+12:43:26 last normal sample: 44.9 °C, Gen4 x2, L1/L1.1/L1.2 enabled, runtime active, live
+12:44:26 next sample starts, then blocks about 64 s on the temperature read
+12:45:30 nvme nvme1: controller is down; will reset: CSTS=0xffffffff, PCI_STATUS=0x10
+12:45:30 nvme 0000:c4:00.0: enabling device (0000 -> 0002)
+12:45:30 nvme nvme1: Disabling device after reset failure: -19
+12:45:30 EXT4-fs (nvme1n1p1): shut down requested (2); Aborting journal
+12:45:30 Buffer I/O error on dev nvme1n1p1, lost sync page write; JBD2: I/O error when updating journal superblock
+later    EXT4-fs warning: error -5 reading directory block (every access to the mount point)
+```
+
+Endpoint config space after the loss: `command=0x0002 cacheline=0x00 BAR0=0x00000004`; kernel BAR0 resource still `0xd4a00000`. Same as OBS-2026-10-31-01: the endpoint is back at power-on defaults. Link still reads Gen4 x2.
+
+**Two earlier anomalies in the same boot (new):**
+- 2026-11-05 22:58:25 `request 0x0 genctr mismatch (got 0x0 expected 0x4)` and `invalid id 0 completed on queue 0`, then at 22:59:29 `opcode 0x2 (Admin Cmd) QID 0 timeout, reset controller`. The reset succeeded and the controller stayed `live`. The sampler shows one 2-minute gap there. First recorded case of this drive misbehaving and recovering. Opcode 0x2 is Get Log Page, which is what the sampler's temperature read issues.
+- 2026-11-06 04:22–06:10 MST: 108 consecutive samples at `2.5 GT/s` x2 against a `16.0 GT/s` maximum, controller `live`. It ended with the 06:11 suspend; the link was Gen4 after resume and for the rest of the boot. First observed link-speed degradation (none in 17 851 earlier samples). Nothing in the kernel log marks the retrain.
+
+**Reading of the evidence:**
+- APST deep-state exit is not the cause. H3 in its APST form is out; a firmware fault unrelated to APST is not.
+- The drive stopped answering between 12:43:26 and 12:44:26, with no host I/O for 4.6 days and no suspend for a week. The only traffic was the once-a-minute admin read and udisks housekeeping.
+- A spurious completion, a silent drop to Gen1 and a config-space reset in one boot are three different symptoms of the endpoint or its link/power misbehaving. That moves weight toward H6 (marginal device) and the power/contact form of H1, and keeps H2 (ASPM) open. It does not separate them.
+- Temperature unremarkable: 44.9 °C, range 37.9–53.9 °C over 12 862 samples in this boot.
+- AER is unavailable on this platform, so there is still no direct PCIe error evidence.
+- Data: the journal was aborted on an idle filesystem. No writes were pending for days, so loss is unlikely but unverified until the next mount replays or checks the journal.
+
+**What this rules out / weakens:** APST ruled out. H4 stays weak, H5 rejected. H2, H6 and H1 (power/contact) remain.
+
+**Conclusion:** HYPOTHESIS. Failure layer unchanged: endpoint loses its PCI configuration without host action. Cause unresolved. The drive stays `NOT_QUALIFIED`.
+
+**Next smallest discriminating experiment:** after a reboot, restore `nvme_core.default_ps_max_latency_us=100000` and disable ASPM L1.2 alone for this endpoint. Watch the sampler for further Gen1 episodes and `genctr mismatch` lines, which may be earlier and more frequent markers than a full loss.
 
 ### OBS-2026-10-31-01 — Controller loss while unmounted, first event with telemetry (passive observation)
 
