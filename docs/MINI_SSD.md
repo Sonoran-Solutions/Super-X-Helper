@@ -175,7 +175,7 @@ Only add a test when its data is useful for discriminating a hypothesis.
 
 **Prediction:** endpoint/controller loss correlates with a specific idle/suspend transition and can be changed reproducibly by one targeted power-management experiment.
 
-**Status:** HYPOTHESIS — local evidence (OBS-2026-08-29-01, OBS-2026-09-19-01) is consistent with H2/H3, but two of three losses happened under active I/O minutes after mounting, so a pure idle/deep-state trigger is not sufficient. Not yet discriminated from H3 or H6.
+**Status:** HYPOTHESIS — local evidence (OBS-2026-08-29-01, OBS-2026-09-19-01) is consistent with H2/H3, but two of three losses happened under active I/O minutes after mounting, so a pure idle/deep-state trigger is not sufficient. Not yet discriminated from H3 or H6. ASPM L1.2 alone is ruled out by OBS-2026-11-18-01 (loss with L1.2 off).
 
 ### H3 — NVMe controller power state / firmware
 
@@ -322,7 +322,7 @@ This instrumentation adds evidence only. It does not change the reliability stat
 
 ## Experiment log
 
-### EXP-2026-11-17-01 — ASPM L1.2 disabled, APST restored (in progress)
+### EXP-2026-11-17-01 — ASPM L1.2 disabled, APST restored (ended 2026-11-18: loss occurred)
 
 **Question:** Does disabling ASPM L1.2 on the Mini SSD endpoint stop the controller losses?
 
@@ -358,11 +358,56 @@ This instrumentation adds evidence only. It does not change the reliability stat
 **Notes:**
 - First mount after the 2026-11-15 journal abort, at 18:15:25 MST: `EXT4-fs (nvme1n1p1): recovery complete`, mounted r/w with no error lines. The filesystem holds 28K of data, so this says the journal replayed cleanly, not that data integrity was tested.
 
-**Observed result:** pending.
+**Observed result:** a loss episode on 2026-11-18 11:40 MST, 17 h 25 min after the L1.2 write, with `l1_2_aspm=0` in every sample since 18:16 (OBS-2026-11-18-01). Prediction failed.
 
-**Conclusion:** HYPOTHESIS (in progress).
+**Conclusion:** REJECTED for "ASPM L1.2 is required for the loss".
 
-**Next smallest discriminating experiment:** if a loss occurs with L1.2 off, ASPM L1.2 is ruled out as required. With both APST and L1.2 excluded, the remaining host-side power variable is ASPM as a whole (`pcie_aspm=off`); beyond that the evidence points to H6/H1 and a reseat or a second unit.
+**Next smallest discriminating experiment:** see OBS-2026-11-18-01.
+
+### OBS-2026-11-18-01 — Controller loss with ASPM L1.2 off, after three recovered resets (passive observation)
+
+Reviewed 2026-11-18, read-only, with the controller still `dead`. Sixth loss episode, same signature.
+
+**Baseline:** as EXP-2026-11-17-01. Kernel `7.0.0-43-generic`, APST stock (`100000`), `l1_2_aspm=0`, other ASPM states on, no suspend in this boot. ext4 mounted r/w since 2026-11-17 18:15; 1465 reads and 9 writes since boot; counters last moved at 18:16 on 2026-11-17, 17 h before the loss.
+
+**Captured evidence (kernel log and sampler, 2026-11-18 MST):**
+
+```text
+03:23:46 request 0x0 genctr mismatch (got 0x0 expected 0xb); invalid id 0 completed on queue 0
+03:24:48 opcode 0x2 (Admin Cmd) QID 0 timeout, reset controller   -> recovered, live
+03:39:57 genctr mismatch (expected 0xe); invalid id 0             -> 03:40:58 timeout, reset, recovered
+07:04:34 genctr mismatch (expected 0xc); invalid id 0             -> 07:05:38 timeout, reset, recovered
+11:38:06 last normal sample: 40.9 °C, Gen4 x2, l1_2 off, live
+11:40:04 controller is down; will reset: CSTS=0xffffffff, PCI_STATUS=0x10
+11:40:04 enabling device (0000 -> 0002); Disabling device after reset failure: -19
+11:40:04 EXT4-fs: shut down requested (2); Aborting journal; JBD2 I/O error on journal superblock
+15:29    operator unmount; 16:24 mount attempt: unable to read superblock
+```
+
+Endpoint config space after the loss: `command=0x0000 cacheline=0x00 BAR0=0x00000004`, kernel BAR0 resource `0xd4a00000`. Link still reads Gen4 x2. Sampler, 1037 rows before the loss: all `live`, all Gen4 x2, 37.9–46.9 °C, four gaps of about 2 minutes, one at each event above.
+
+**Spurious completions per retained boot (13 boots, journal back to 2026-09):**
+
+| Boot | Kernel | Config | `genctr mismatch` | Losses |
+|---|---|---|---|---|
+| 2026-09-18 → 09-19 | `-31` | stock | 0 | 1 |
+| 2026-10-20 → 11-05 | `-38` | stock | 0 | 1 |
+| 2026-11-05 → 11-17 | `-42` | APST off | 1 | 1 |
+| 2026-11-17 → | `-43` | L1.2 off | 3 in 17 h | 1 |
+
+**Reading of the evidence:**
+- ASPM L1.2 alone is not required, and APST alone is not required (OBS-2026-11-15-01). The two have never been off in the same boot, so "either deep state is enough" is not excluded. L1, L1.1 and clock PM were on in every loss.
+- Each `genctr mismatch` lands on a sampler tick: the controller answers the sampler's Get Log Page with a completion for command id 0, which the driver did not issue, and the real command then times out. That is what a controller that restarted its admin queue state would do. Inference: the recovered events and the losses may be one fault, an internal controller restart, that sometimes also clears the PCI configuration. Not proven.
+- The fault is getting more frequent: about one loss every 3–4 weeks through October, then four events in 17 hours of live time. The kernel changed in each of the last two boots, so a driver change that only makes the events visible, or more likely, is not excluded. A drive that is degrading (H6) fits the trend best.
+- All four events happened on an idle, mounted filesystem with no host I/O. The sampler's once-a-minute admin read is the only regular traffic and is also what detects every event, so it cannot be separated from the trigger with this data. The 2026-08-29 and 2026-09-19 losses predate the sampler, so it is not required.
+- Temperature unremarkable, no suspend involved, no link-speed change in this boot.
+- Data: second journal abort on a filesystem holding 28K, no writes pending. Unverified until the next mount.
+
+**What this rules out / weakens:** ASPM L1.2 alone ruled out. H4 stays weak, H5 rejected. H6 strengthened. H2 survives only as "any link low-power state" or in combination with APST.
+
+**Conclusion:** HYPOTHESIS. Failure layer unchanged. Two single-variable host power experiments have failed; the cause is unresolved. The drive stays `NOT_QUALIFIED`.
+
+**Next smallest discriminating experiment:** one run with all host-controlled power saving off for this drive: `nvme_core.default_ps_max_latency_us=0` plus every `link/*` ASPM and clock PM attribute at `0` (read back; `pcie_aspm=off` is not enough, it leaves firmware-set ASPM in place). At the current event rate a few days is a meaningful run. A loss or `genctr mismatch` in that state takes host power management out and leaves H6/H1: reseat, then a second unit or vendor return. A clean run says power saving is involved and the states can be re-enabled one at a time. Separately, the sampler's temperature read could be turned off for a run to test whether admin traffic is the trigger.
 
 ### EXP-2026-11-05-01 — APST disabled (ended 2026-11-15: loss occurred)
 
