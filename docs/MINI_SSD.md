@@ -322,6 +322,48 @@ This instrumentation adds evidence only. It does not change the reliability stat
 
 ## Experiment log
 
+### EXP-2026-11-17-01 — ASPM L1.2 disabled, APST restored (in progress)
+
+**Question:** Does disabling ASPM L1.2 on the Mini SSD endpoint stop the controller losses?
+
+**Baseline (boot started 2026-11-17 18:08 MST):**
+- kernel: `7.0.0-43-generic`, up from `7.0.0-42-generic` in the loss boot of OBS-2026-11-15-01
+- BIOS: `V1.01`
+- power state: sleep mode `s2idle`; no suspend yet in this boot
+- Frost Bay: not involved
+- Mini SSD state: `live`, `nvme1` in this boot, Gen4 x2, no loss lines since boot. The drive was dead from the 2026-11-15 loss until the previous boot ended 2026-11-17 18:06, and enumerated normally without a reseat.
+- other relevant config: `nvme_core.default_ps_max_latency_us=100000` (stock; the parameter is gone from `/etc/default/grub`, backup `/etc/default/grub.bak-2026-11-15`); ASPM policy `default`; endpoint `l1_aspm=1`, `l1_1_aspm=1`, `l1_1_pcipm=1`, `l1_2_pcipm=1`, `clkpm=1`, `d3cold_allowed=1`; per-minute sampler timer active
+
+**Current hypothesis:** H2. The endpoint fails on an ASPM L1.2 exit and comes back with its PCI configuration reset.
+
+**Prediction if hypothesis is true:** no `controller is down` / `reset failure: -19` episode during a run long enough to beat the baseline rate.
+
+**Single variable changed:** `l1_2_aspm` = `0` on `0000:c4:00.0`, written as root to sysfs at 18:15:15 MST and read back as `0`. APST went back to stock in the same reboot, so relative to the previous boot two settings differ; relative to the stock configuration of the first four losses, only L1.2 does.
+
+**Confounds:**
+- The kernel update to `7.0.0-43` arrived in the same reboot. Losses span `-30`/`-31`, `-38` and `-42`, so a kernel fix is not a leading explanation, but a clean run cannot exclude it.
+- The sysfs write does not survive a reboot. It must be repeated after every boot, and any time spent with `l1_2_aspm=1` (7 minutes in this boot) does not count toward the run. The sampler's `aspm.l1_2` field records the actual state per minute.
+- `l1_2_pcipm` (PCI-PM L1.2) is left at `1`. It is a separate mechanism and is not the variable under test.
+
+**Procedure:**
+1. After every boot, write `0` to `link/l1_2_aspm` before mounting, and confirm the read-back.
+2. Use the drive normally, including mounting it.
+3. Leave APST, the other ASPM states, the sampler and the kernel command line unchanged.
+4. Check `mini_ssd_events` and the sampler log periodically, including for Gen1 episodes and `genctr mismatch` lines.
+
+**Stop and record if:** a loss episode occurs (record it as OBS with the sampler context), or another variable changes (kernel, BIOS, other ASPM states, slot or reseat).
+
+**Pass bar:** 60 days without a loss episode with `l1_2_aspm=0` throughout, ending no earlier than 2027-01-16. Passing supports this mitigation but does not tick the reliability qualification. The drive stays `NOT_QUALIFIED`.
+
+**Notes:**
+- First mount after the 2026-11-15 journal abort, at 18:15:25 MST: `EXT4-fs (nvme1n1p1): recovery complete`, mounted r/w with no error lines. The filesystem holds 28K of data, so this says the journal replayed cleanly, not that data integrity was tested.
+
+**Observed result:** pending.
+
+**Conclusion:** HYPOTHESIS (in progress).
+
+**Next smallest discriminating experiment:** if a loss occurs with L1.2 off, ASPM L1.2 is ruled out as required. With both APST and L1.2 excluded, the remaining host-side power variable is ASPM as a whole (`pcie_aspm=off`); beyond that the evidence points to H6/H1 and a reseat or a second unit.
+
 ### EXP-2026-11-05-01 — APST disabled (ended 2026-11-15: loss occurred)
 
 **Question:** Does disabling NVMe autonomous power state transitions (APST) stop the controller losses?
