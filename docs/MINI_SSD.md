@@ -175,7 +175,7 @@ Only add a test when its data is useful for discriminating a hypothesis.
 
 **Prediction:** endpoint/controller loss correlates with a specific idle/suspend transition and can be changed reproducibly by one targeted power-management experiment.
 
-**Status:** HYPOTHESIS — local evidence (OBS-2026-08-29-01, OBS-2026-09-19-01) is consistent with H2/H3, but two of three losses happened under active I/O minutes after mounting, so a pure idle/deep-state trigger is not sufficient. Not yet discriminated from H3 or H6.
+**Status:** HYPOTHESIS — local evidence (OBS-2026-08-29-01, OBS-2026-09-19-01) is consistent with H2/H3, but two of three losses happened under active I/O minutes after mounting, so a pure idle/deep-state trigger is not sufficient. Not yet discriminated from H3 or H6. ASPM L1.2 alone is ruled out by OBS-2026-11-18-01 (loss with `l1_2_aspm=0`; `l1_2_pcipm` stayed `1`).
 
 ### H3 — NVMe controller power state / firmware
 
@@ -201,7 +201,7 @@ Only add a test when its data is useful for discriminating a hypothesis.
 
 **Prediction:** failures persist across OS/kernel/config environments and follow the SSD or slot in a way inconsistent with software controls.
 
-**Status:** HYPOTHESIS — four identical losses on one unit are also what a marginal device would look like, and OBS-2026-10-31-01 shows the endpoint losing its PCI configuration without host action.
+**Status:** HYPOTHESIS — six identical losses on one unit (four when this was written; see OBS-2026-11-15-01 and OBS-2026-11-18-01) are also what a marginal device would look like, and OBS-2026-10-31-01 shows the endpoint losing its PCI configuration without host action.
 
 ## Experimental discipline
 
@@ -260,7 +260,7 @@ Read-only facts gathered from the development Super X on 2026-10-18 (journal rev
 - **AER is unavailable on this platform.** Firmware `_OSC` reports `platform does not support [SHPCHotplug AER LTR DPC]`. Absence of AER messages is therefore *not* evidence of a clean link; PCIe-layer faults will surface only as NVMe driver symptoms (all-ones register reads, reset failures).
 - **Current power-management configuration** (unprivileged sysfs read): ASPM policy `default`; endpoint `l1_aspm=1`, `l1_1_aspm=1`, `l1_2_aspm=1`, `l1_1_pcipm=1`, `l1_2_pcipm=1`, `clkpm=1`, `d3cold_allowed=1`; `nvme_core.default_ps_max_latency_us=100000` (APST enabled with deep states permitted); controller quirk `simple_suspend`; sleep mode `s2idle`.
 - **Usage context:** the Mini SSD carries a single ext4 partition that is not in `/etc/fstab`; it is mounted on demand through the desktop automounter (udisks) and was not mounted at review time. It is idle most of the time, but losses have occurred both idle and under active I/O (see experiment log).
-- **Kernel command line** carries no `nvme_core`/`pcie_aspm` parameters as of 2026-11-02, so the grub edits attempted during the 2026-08-29 recovery are not in effect and the baseline above is the stock configuration. Cause: `/etc/default/grub` line 9 sets `pcie_aspm=off nvme_core.default_ps_max_latency_us=0`, then line 10 reassigns `GRUB_CMDLINE_LINUX_DEFAULT` without them. The `pcie_aspm=off` after line 10's closing quote only sets an unused shell variable. Neither mitigation ran on this unit before 2026-11-05. Simply deleting line 10 would change two variables at once. Since the 2026-11-05 boot the grub file carries only `nvme_core.default_ps_max_latency_us=0`, and it is on the running command line (EXP-2026-11-05-01). `pcie_aspm` is still stock.
+- **Kernel command line** carries no `nvme_core`/`pcie_aspm` parameters as of 2026-11-02, so the grub edits attempted during the 2026-08-29 recovery are not in effect and the baseline above is the stock configuration. Cause: `/etc/default/grub` line 9 sets `pcie_aspm=off nvme_core.default_ps_max_latency_us=0`, then line 10 reassigns `GRUB_CMDLINE_LINUX_DEFAULT` without them. The `pcie_aspm=off` after line 10's closing quote only sets an unused shell variable. Neither mitigation ran on this unit before 2026-11-05. Simply deleting line 10 would change two variables at once. Since the 2026-11-05 boot the grub file carries only `nvme_core.default_ps_max_latency_us=0`, and it is on the running command line (EXP-2026-11-05-01). `pcie_aspm` is still stock. That parameter was removed again on 2026-11-17 for EXP-2026-11-17-01, so the command line is back to carrying neither.
 - **Event frequency so far:** 3 controller losses in 2 of 25 boots / 71 days / 183 `PM: suspend entry` lines (2026-08-08 → 2026-10-18), all with the identical `CSTS=0xffffffff` → `reset failure: -19` signature. Two came within 7–14 minutes of mounting the drive and doing I/O; one came after 11 h idle. Reproduction by a bounded matrix is still unlikely at this rate; passive capture (now built, see Instrumentation) is the right first instrument, and mounting the drive for ordinary use is the most likely way to see the next event.
 
 ### Instrumentation
@@ -322,7 +322,7 @@ This instrumentation adds evidence only. It does not change the reliability stat
 
 ## Experiment log
 
-### EXP-2026-11-17-01 — ASPM L1.2 disabled, APST restored (in progress)
+### EXP-2026-11-17-01 — ASPM L1.2 disabled, APST restored (ended 2026-11-18: loss occurred)
 
 **Question:** Does disabling ASPM L1.2 on the Mini SSD endpoint stop the controller losses?
 
@@ -358,11 +358,63 @@ This instrumentation adds evidence only. It does not change the reliability stat
 **Notes:**
 - First mount after the 2026-11-15 journal abort, at 18:15:25 MST: `EXT4-fs (nvme1n1p1): recovery complete`, mounted r/w with no error lines. The filesystem holds 28K of data, so this says the journal replayed cleanly, not that data integrity was tested.
 
-**Observed result:** pending.
+**Observed result:** a loss episode on 2026-11-18 11:40 MST, 17 h 25 min after the L1.2 write, with `l1_2_aspm=0` in every sample since 18:16 (OBS-2026-11-18-01). Prediction failed.
 
-**Conclusion:** HYPOTHESIS (in progress).
+**Conclusion:** REJECTED for "ASPM L1.2 is required for the loss".
 
-**Next smallest discriminating experiment:** if a loss occurs with L1.2 off, ASPM L1.2 is ruled out as required. With both APST and L1.2 excluded, the remaining host-side power variable is ASPM as a whole (`pcie_aspm=off`); beyond that the evidence points to H6/H1 and a reseat or a second unit.
+**Next smallest discriminating experiment:** see OBS-2026-11-18-01.
+
+### OBS-2026-11-18-01 — Controller loss with ASPM L1.2 off, after three recovered resets (passive observation)
+
+Reviewed 2026-11-18, read-only, with the controller still `dead`. Sixth loss episode, same signature.
+
+**Baseline:** as EXP-2026-11-17-01. Kernel `7.0.0-43-generic`, APST stock (`100000`), `l1_2_aspm=0`, other ASPM states on, no suspend in this boot. ext4 mounted r/w since 2026-11-17 18:15; 1465 reads and 9 writes since boot; counters last moved at 18:16 on 2026-11-17, 17 h before the loss.
+
+**Captured evidence (kernel log and sampler, 2026-11-18 MST):**
+
+```text
+03:23:46 request 0x0 genctr mismatch (got 0x0 expected 0xb); invalid id 0 completed on queue 0
+03:24:48 opcode 0x2 (Admin Cmd) QID 0 timeout, reset controller   -> recovered, live
+03:39:57 genctr mismatch (expected 0xe); invalid id 0             -> 03:40:58 timeout, reset, recovered
+07:04:34 genctr mismatch (expected 0xc); invalid id 0             -> 07:05:38 timeout, reset, recovered
+11:38:06 last normal sample: 40.9 °C, Gen4 x2, l1_2 off, live
+11:40:04 controller is down; will reset: CSTS=0xffffffff, PCI_STATUS=0x10
+11:40:04 enabling device (0000 -> 0002); Disabling device after reset failure: -19
+11:40:04 EXT4-fs: shut down requested (2); Aborting journal; JBD2 I/O error on journal superblock
+15:29    operator unmount; 16:24 mount attempt: unable to read superblock
+```
+
+Endpoint config space after the loss: `command=0x0000 cacheline=0x00 BAR0=0x00000004`, kernel BAR0 resource `0xd4a00000`. Link still reads Gen4 x2. Sampler, 1037 rows before the loss: all `live`, all Gen4 x2, 37.9–46.9 °C, four gaps of about 2 minutes, one at each event above.
+
+**Spurious completions per retained boot (13 boots, journal back to 2026-09; the nine boots with neither are omitted, and the 2026-08-29 boot with two losses has aged out of the journal):**
+
+| Boot | Kernel | Config | `genctr mismatch` | Losses |
+|---|---|---|---|---|
+| 2026-09-18 → 09-19 | `-31` | stock | 0 | 1 |
+| 2026-10-20 → 11-05 | `-38` | stock | 0 | 1 |
+| 2026-11-05 → 11-17 | `-42` | APST off | 1 | 1 |
+| 2026-11-17 → | `-43` | L1.2 off | 3 in 17 h | 1 |
+
+**Reading of the evidence:**
+- Neither ASPM L1.2 nor APST is individually required (OBS-2026-11-15-01 for APST). The two have never been off in the same boot, so "either deep state is enough" is not excluded. ASPM L1 and L1.1, PCI-PM L1.1/L1.2 and clock PM were on in the three sampled losses (2026-10-31, 2026-11-15, 2026-11-18). The three earlier losses have no `link/*` capture, and the second 2026-08-29 loss followed an operator write to the `pcie_aspm` policy.
+- Each `genctr mismatch` lands on a sampler tick: the controller answers the sampler's Get Log Page with a completion for command id 0, which the driver did not issue, and the real command then times out. That is what a controller that restarted its admin queue state would do. Inference: the recovered events and the losses may be one fault, an internal controller restart, that sometimes also clears the PCI configuration. Not proven.
+- Events are more frequent in this boot, but the comparison is not clean. Losses: about one every 3–4 weeks through October, then two in three days (2026-11-15 and 2026-11-18). Recovered spurious completions: 0, 1 and 3 in the three boots that had the per-minute sampler, the 3 within 17 hours. Whether the recovered events and the losses are one fault is unproven (previous point), and earlier boots were mostly unmounted and partly unsampled. Competing explanations for the rise: a degrading drive (H6); the kernel change in each of the last two boots (`-42`, `-43`); and this boot's configuration itself, since `l1_2_aspm=0` with APST restored sends idle link entries into L1/L1.1 instead of L1.2.
+- All four events happened on an idle, mounted filesystem with no host I/O. The sampler's once-a-minute admin read is the only regular traffic and is also what detects every event, so it cannot be separated from the trigger with this data. The 2026-08-29 and 2026-09-19 losses predate the sampler, so it is not required.
+- Temperature unremarkable, no suspend involved, no link-speed change in this boot.
+- Data: third recorded journal abort on this partition (after 2026-08-29 and 2026-11-15), the second on the idle 28K filesystem, with no writes pending. Unverified until the next mount.
+
+**What this rules out / weakens:** ASPM L1.2 alone ruled out. H4 stays weak, H5 rejected. H6 fits the rising rate but is not separated from the confounds above. H2 survives through any untested link state (ASPM L1, L1.1, PCI-PM L1.1/L1.2, clock PM), alone or combined with APST or L1.2. H3 survives as a firmware fault unrelated to APST.
+
+**Conclusion:** HYPOTHESIS. Failure layer unchanged. Two single-variable host power experiments have failed; the cause is unresolved. The drive stays `NOT_QUALIFIED`.
+
+**Next smallest discriminating experiment:** one run with all host-controlled power saving off for this drive:
+- `nvme_core.default_ps_max_latency_us=0` on the kernel command line (needs a reboot);
+- every attribute under the endpoint's `link/` at `0`: `l1_aspm`, `l1_1_aspm`, `l1_2_aspm`, `l1_1_pcipm`, `l1_2_pcipm`, `clkpm`;
+- runtime PM held active: `power/control=on` on the endpoint (already `on`) and on its root port `0000:00:03.1` (currently `auto`).
+
+The sysfs writes are root steps for the owner, reset on every boot, and must be applied and read back before mounting. `pcie_aspm=off` is not a substitute: it leaves firmware-set ASPM in place.
+
+The result is asymmetric. A loss in that state is decisive at once: it takes host power management out (H2 and the APST form of H3). A `genctr mismatch` without a loss does the same for the spurious completions, and for the losses only if the two share a cause. A loss leaves H6, H1 and a firmware fault unrelated to APST; a kernel `-42`/`-43` driver issue would also remain. The next steps would then be a reseat, an older kernel, and a second unit or vendor return. A clean run proves little until it is long: the two previous boots each had a quiet stretch of about 10 days before their losses, so crediting it needs the same 60-day bar as the earlier experiments. Only then would the states be re-enabled one at a time. Separately, the sampler's temperature read could be turned off for a run to test whether admin traffic is the trigger.
 
 ### EXP-2026-11-05-01 — APST disabled (ended 2026-11-15: loss occurred)
 
