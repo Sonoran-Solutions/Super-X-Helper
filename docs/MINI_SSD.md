@@ -260,7 +260,7 @@ Read-only facts gathered from the development Super X on 2026-10-18 (journal rev
 - **AER is unavailable on this platform.** Firmware `_OSC` reports `platform does not support [SHPCHotplug AER LTR DPC]`. Absence of AER messages is therefore *not* evidence of a clean link; PCIe-layer faults will surface only as NVMe driver symptoms (all-ones register reads, reset failures).
 - **Current power-management configuration** (unprivileged sysfs read): ASPM policy `default`; endpoint `l1_aspm=1`, `l1_1_aspm=1`, `l1_2_aspm=1`, `l1_1_pcipm=1`, `l1_2_pcipm=1`, `clkpm=1`, `d3cold_allowed=1`; `nvme_core.default_ps_max_latency_us=100000` (APST enabled with deep states permitted); controller quirk `simple_suspend`; sleep mode `s2idle`.
 - **Usage context:** the Mini SSD carries a single ext4 partition that is not in `/etc/fstab`; it is mounted on demand through the desktop automounter (udisks) and was not mounted at review time. It is idle most of the time, but losses have occurred both idle and under active I/O (see experiment log).
-- **Kernel command line** carries no `nvme_core`/`pcie_aspm` parameters as of 2026-11-02, so the grub edits attempted during the 2026-08-29 recovery are not in effect and the baseline above is the stock configuration. Cause: `/etc/default/grub` line 9 sets `pcie_aspm=off nvme_core.default_ps_max_latency_us=0`, then line 10 reassigns `GRUB_CMDLINE_LINUX_DEFAULT` without them. The `pcie_aspm=off` after line 10's closing quote only sets an unused shell variable. Neither mitigation ran on this unit before 2026-11-05. Simply deleting line 10 would change two variables at once. Since the 2026-11-05 boot the grub file carries only `nvme_core.default_ps_max_latency_us=0`, and it is on the running command line (EXP-2026-11-05-01). `pcie_aspm` is still stock. That parameter was removed again on 2026-11-17 for EXP-2026-11-17-01, so the command line is back to carrying neither.
+- **Kernel command line** carries no `nvme_core`/`pcie_aspm` parameters as of 2026-11-02, so the grub edits attempted during the 2026-08-29 recovery are not in effect and the baseline above is the stock configuration. Cause: `/etc/default/grub` line 9 sets `pcie_aspm=off nvme_core.default_ps_max_latency_us=0`, then line 10 reassigns `GRUB_CMDLINE_LINUX_DEFAULT` without them. The `pcie_aspm=off` after line 10's closing quote only sets an unused shell variable. Neither mitigation ran on this unit before 2026-11-05. Simply deleting line 10 would change two variables at once. Since the 2026-11-05 boot the grub file carries only `nvme_core.default_ps_max_latency_us=0`, and it is on the running command line (EXP-2026-11-05-01). `pcie_aspm` is still stock. That parameter was removed again on 2026-11-17 for EXP-2026-11-17-01, so the command line was back to carrying neither. It was added back on 2026-11-18 and is on the running command line since the 2026-11-19 boot (EXP-2026-11-19-01).
 - **Event frequency so far:** 3 controller losses in 2 of 25 boots / 71 days / 183 `PM: suspend entry` lines (2026-08-08 → 2026-10-18), all with the identical `CSTS=0xffffffff` → `reset failure: -19` signature. Two came within 7–14 minutes of mounting the drive and doing I/O; one came after 11 h idle. Reproduction by a bounded matrix is still unlikely at this rate; passive capture (now built, see Instrumentation) is the right first instrument, and mounting the drive for ordinary use is the most likely way to see the next event.
 
 ### Instrumentation
@@ -321,6 +321,51 @@ From a source checkout use `PYTHONPATH=src python3 -m superx_helper.collector` w
 This instrumentation adds evidence only. It does not change the reliability state (`NOT_QUALIFIED`) and does not tick any qualification item.
 
 ## Experiment log
+
+### EXP-2026-11-19-01 — All host-controlled power saving off (running)
+
+**Question:** Do the controller losses and spurious completions still occur with every host-controlled power-saving mechanism for this drive turned off?
+
+**Baseline (boot started 2026-11-19 18:04 MST):**
+- kernel: `7.0.0-43-generic`, unchanged from the loss boot of OBS-2026-11-18-01
+- BIOS: `V1.01`
+- power state: sleep mode `s2idle`; no suspend yet in this boot
+- Frost Bay: not involved
+- Mini SSD state: `live`, `nvme0` in this boot, Gen4 x2, no loss or `genctr mismatch` lines since boot. The drive was dead from the 2026-11-18 loss until the previous boot ended 2026-11-19 06:16; the machine was then off for about 12 hours, and the drive enumerated normally without a reseat.
+- other relevant config: ASPM policy `default`; `d3cold_allowed=1` on the endpoint and root port (not changed); per-minute sampler timer active
+
+**Current hypothesis:** H2, or the APST form of H3, in any combination. The fault needs at least one host-controlled power-saving transition.
+
+**Prediction if hypothesis is true:** no `controller is down` / `reset failure: -19` episode and no `genctr mismatch` during a run long enough to beat the baseline rate.
+
+**Variables changed (one group, deliberately not a single variable; see OBS-2026-11-18-01):**
+- `nvme_core.default_ps_max_latency_us=0` on the kernel command line (`/etc/default/grub`, backup `/etc/default/grub.bak-2026-11-18`); the module parameter reads `0`.
+- `l1_aspm`, `l1_1_aspm`, `l1_2_aspm`, `l1_1_pcipm`, `l1_2_pcipm`, `clkpm` = `0` under `0000:c4:00.0/link/`, written as root at 18:13:59 MST; all six read back `0`.
+- `power/control=on` on root port `0000:00:03.1`, written at 18:14:13 MST, read back `on`. The endpoint was already `on`.
+
+**Confounds:**
+- The sysfs writes do not survive a reboot. They must be repeated after every boot before mounting, and time spent in the stock state (10 minutes in this boot, unmounted) does not count toward the run. The sampler's `aspm` and `power` fields record the actual state per minute.
+- `d3cold_allowed` stays `1`. With runtime PM held `on` it should not be reached outside suspend, but it is not forced off.
+- A suspend/resume may restore link states; re-read `link/*` after the first resume and record what it shows.
+- The sampler's once-a-minute admin read continues, so it is still not separated from the trigger.
+- Temperature: the first sample in the new state read 49.9 °C, against 36.9–41.9 °C in the ten minutes before and a 37.9–46.9 °C range in the previous boot. One sample, taken 9 s after the mount and its journal replay, so the cause is not separated (drive no longer idling in low-power states, or the mount I/O). If the idle temperature settles higher, a later loss would not cleanly exclude H4.
+
+**Procedure:**
+1. After every boot, repeat the seven sysfs writes before mounting and confirm the read-back.
+2. Use the drive normally, including mounting it.
+3. Leave the kernel, command line and sampler unchanged.
+4. Check `mini_ssd_events` and the sampler log periodically, including for `genctr mismatch` lines, Gen1 episodes and the idle temperature.
+
+**Stop and record if:** a loss episode or `genctr mismatch` occurs (record it as OBS with the sampler context; a `genctr mismatch` alone does not end the run), or another variable changes (kernel, BIOS, slot or reseat).
+
+**Pass bar:** 60 days without a loss episode with all of the above held throughout, ending no earlier than 2027-01-18. Passing supports host power management as a requirement but does not tick the reliability qualification. The drive stays `NOT_QUALIFIED`.
+
+**Notes:**
+- First mount after the 2026-11-18 journal abort, at 18:14:32 MST: `EXT4-fs (nvme0n1p1): recovery complete`, mounted r/w with no error lines. As before, this says the journal replayed cleanly on a 28K filesystem, not that data integrity was tested.
+
+**Observed result:** pending.
+
+**Conclusion:** pending.
 
 ### EXP-2026-11-17-01 — ASPM L1.2 disabled, APST restored (ended 2026-11-18: loss occurred)
 
