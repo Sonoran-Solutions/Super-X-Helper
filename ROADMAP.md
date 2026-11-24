@@ -76,6 +76,8 @@ Legacy foundation issues [#1](https://github.com/Sonoran-Solutions/Super-X-Helpe
 
 **Core rule:** premium research should inherit the public and local evidence packet. Do not spend Tier-4 budget re-deriving an upstream implementation that can be audited first.
 
+**Research-gate escalation:** Frost Bay's basic protocol is no longer a default Tier-4 task; escalate to Tier 4 (Astra) there only for unexplained local divergence or safety-critical unknowns. The Mini SSD investigation remains a legitimate Tier-4 candidate. Tier-4 research should inherit evidence from cheaper tiers and maintained upstream work, and step back down for implementation once an unknown is resolved.
+
 ---
 
 # Phase 0 — Trustworthy foundation
