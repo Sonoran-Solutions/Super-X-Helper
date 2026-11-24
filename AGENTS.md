@@ -157,17 +157,6 @@ Default diagnostics:
 
 Explicit local identifier opt-in is allowed when it is genuinely needed for diagnosis.
 
-## Model ladder
-
-- **Tier 1:** Gemini 3.8 Flash / DeepSeek V4 Flash — UI/scaffolding/tests/docs/mechanical work.
-- **Tier 2:** GPT-5.6 Terra — serious engineering, Linux/backend integration, review.
-- **Tier 3:** DeepSeek V4 Pro — hard debugging/static RE.
-- **Tier 4:** GPT-6 Astra — genuinely unresolved protocol/fault-isolation research after upstream evidence is exhausted.
-
-Frost Bay's basic protocol is no longer a default Tier-4 task. Use Astra there only for unexplained local divergence or safety-critical unknowns. The Mini SSD investigation remains a legitimate Tier-4 candidate.
-
-Astra should inherit evidence from cheaper models and maintained upstream work. After research resolves an unknown, step back down for implementation.
-
 ## Tests
 
 Default tests/CI must never write physical hardware. Fake sysfs and recorded/mocked protocol data are preferred.
